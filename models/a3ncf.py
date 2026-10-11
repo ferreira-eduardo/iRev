@@ -11,8 +11,9 @@ class A3NCF(nn.Module):
     def __init__(self, opt, uori='user'):
         super(A3NCF, self).__init__()
         self.opt = opt
-        self.num_fea = 1 
+        self.num_fea = 1
 
+        self.doc_projection = nn.Linear(opt.doc_len, opt.fc_dim)
         
         self.user_emb = nn.Embedding(opt.user_num, opt.id_emb_size)
         self.item_emb = nn.Embedding(opt.item_num, opt.id_emb_size)
@@ -30,9 +31,14 @@ class A3NCF(nn.Module):
             nn.ReLU()
         )
 
+        if opt.topics:
+            input_dim = (opt.id_emb_size * 2) + (opt.doc_len * 2)
+        else:
+            input_dim = (opt.id_emb_size * 2) + (opt.id_emb_size * 2)  # ou a lógica original do modelo
+
         self.attention = nn.Sequential(
-            nn.Linear((opt.id_emb_size*2) + (opt.id_emb_size*2), opt.id_emb_size),
-            nn.Softmax(dim=0)
+            nn.Linear(input_dim, opt.id_emb_size),
+            nn.Softmax(dim=1)
         )
 
         self.prediction_mlp = nn.Sequential(
@@ -54,8 +60,11 @@ class A3NCF(nn.Module):
         user_flat = self.user_latent(user_fea)
         item_flat = self.item_latent(item_fea)
 
-        user_latent = user_doc + user_flat
-        item_latent = item_doc + item_flat
+        user_doc_proj = self.doc_projection(user_doc.float())
+        user_latent = user_doc_proj + user_flat
+
+        item_doc_proj = self.doc_projection(item_doc.float())
+        item_latent = item_doc_proj + item_flat
 
         user_latent = self.user_att1(user_latent)
         item_latent = self.item_att1(item_latent)

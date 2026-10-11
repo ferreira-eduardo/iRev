@@ -13,6 +13,12 @@ from .alfm import ALFM
 from .a3ncf import A3NCF
 from .carp import CARP
 from .man import MAN
+from .letter import LETTER
+from .kann import KANN
+from .light_gcn import LightGCN
+from .aph import APH
+from .magcl import MAGCL
+from .rlmrec import RLMRec
 from .tarmf import TARMF
 from .carm import CARM
 from .nrpa import NRPA
@@ -52,6 +58,12 @@ __all__ = [
     "A3NCF",
     "CARP",
     "MAN",
+    "LETTER",
+    "KANN",
+    "LightGCN",
+    "APH",
+    "MAGCL",
+    "RLMRec",
     "TARMF",
     "CARM",
     "NRPA",

@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class ALFM(nn.Module):
 
     def __init__(self, opt):
@@ -12,64 +13,69 @@ class ALFM(nn.Module):
 
         self.opt = opt
 
-        self.num_fea = 1   # Document
+        self.num_fea = 1  # Document
 
-        self.user_embedding = nn.Embedding(
-					opt.user_num, opt.id_emb_size)
-        self.item_embedding = nn.Embedding(
-					opt.item_num, opt.id_emb_size)
+        self.user_embedding = nn.Embedding(opt.user_num, opt.id_emb_size)
+        self.item_embedding = nn.Embedding(opt.item_num, opt.id_emb_size)
 
         self.user_fusion = nn.Sequential(
-			nn.Linear(opt.id_emb_size, opt.id_emb_size),
-			nn.ReLU())
+            nn.Linear(opt.id_emb_size, opt.id_emb_size),
+            nn.ReLU())
         self.item_fusion = nn.Sequential(
-			nn.Linear(opt.id_emb_size, opt.id_emb_size),
-			nn.ReLU())
+            nn.Linear(opt.id_emb_size, opt.id_emb_size),
+            nn.ReLU())
 
         self.att_layer1 = nn.Sequential(
-			nn.Linear(2 * opt.id_emb_size, 1),
-			nn.ReLU())
+            nn.Linear(2 * opt.id_emb_size, 1),
+            nn.ReLU())
         self.att_layer2 = nn.Linear(1, opt.id_emb_size, bias=False)
 
         self.rating_predict = nn.Sequential(
-			nn.Linear(opt.id_emb_size, opt.id_emb_size),
-			nn.ReLU(),
-			nn.Dropout(p=opt.drop_out),
-			# nn.Linear(opt.id_emb_size, opt.id_emb_size),
-			# nn.ReLU(),
-			# nn.Dropout(p=self.dropout),
-			nn.Linear(opt.id_emb_size, 1))
+            nn.Linear(opt.id_emb_size, opt.id_emb_size),
+            nn.ReLU(),
+            nn.Dropout(p=opt.drop_out),
+            nn.Linear(opt.id_emb_size, 1),
+            nn.Sigmoid())
 
-
+        self.doc_projection = nn.Linear(opt.doc_len, opt.id_emb_size)
 
     def forward(self, datas):
         _, _, uids, iids, _, _, user_doc, item_doc = datas
 
-		########################## INPUT #########################
+        ########################## INPUT #########################
         user_id_embed = self.user_embedding(uids)
         item_id_embed = self.item_embedding(iids)
-		
-		###################### FEATURE FUSION ####################
-        user_embed = user_id_embed + user_doc
-        item_embed = item_id_embed + item_doc
+
+        user_doc = user_doc.float()
+        item_doc = item_doc.float()
+
+        ###################### FEATURE FUSION ####################
+        user_embed = user_id_embed + self.doc_projection(user_doc)
+        item_embed = item_id_embed + self.doc_projection(item_doc)
+
+        # user_embed = user_id_embed + user_doc
+        # item_embed = item_id_embed + item_doc
         user_embed = self.user_fusion(user_embed)
         item_embed = self.item_fusion(item_embed)
 
-		################## ATTENTIVE INTERACTION ################
+        ################## ATTENTIVE INTERACTION ################
         feature_all = torch.cat((
-					user_embed, item_embed), dim=-1)
+            user_embed, item_embed), dim=-1)
         att_weights = self.att_layer2(self.att_layer1(feature_all))
         att_weights = F.softmax(att_weights, dim=-1)
 
-		#################### RATING PREDICTION ###################
+        #################### RATING PREDICTION ###################
         interact = att_weights * user_embed * item_embed
         prediction = self.rating_predict(interact)
 
-        # prediction = 5 * torch.sigmoid(prediction)
+        rating_range = 5
+        if self.opt == 'Imdb_data':
+            rating_range = 10
 
-        return prediction.squeeze(1), None
+        prediction = rating_range * prediction.squeeze(1)
 
-    
+        return prediction, None
+
     def reset_para(self):
 
         for emb in [self.user_embedding, self.item_embedding]:
@@ -83,4 +89,3 @@ class ALFM(nn.Module):
                    self.rating_predict[3]]:
             nn.init.uniform_(fc.weight, -0.1, 0.1)
             nn.init.constant_(fc.bias, 0.1)
-    

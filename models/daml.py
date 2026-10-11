@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
-
 import torch
 import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
-
 
 class DAML(nn.Module):
 
@@ -12,9 +10,9 @@ class DAML(nn.Module):
         super(DAML, self).__init__()
 
         self.opt = opt
-        self.num_fea = 2  
-        self.user_word_embs = nn.Embedding(opt.vocab_size, opt.word_dim)  
-        self.item_word_embs = nn.Embedding(opt.vocab_size, opt.word_dim)  
+        self.num_fea = 2
+        self.user_word_embs = nn.Embedding(opt.vocab_size, opt.word_dim)
+        self.item_word_embs = nn.Embedding(opt.vocab_size, opt.word_dim)
 
         self.word_cnn = nn.Conv2d(1, 1, (5, opt.word_dim), padding=(2, 0))
         self.user_doc_cnn = nn.Conv2d(1, opt.filters_num, (opt.kernel_size, opt.word_dim), padding=(1, 0))
@@ -33,7 +31,7 @@ class DAML(nn.Module):
         self.reset_para()
 
     def forward(self, datas):
-        
+
         _, _, uids, iids, _, _, user_doc, item_doc = datas
 
         user_word_embs = self.user_word_embs(user_doc)
@@ -41,10 +39,13 @@ class DAML(nn.Module):
         user_local_fea = self.local_attention_cnn(user_word_embs, self.user_doc_cnn)
         item_local_fea = self.local_attention_cnn(item_word_embs, self.item_doc_cnn)
 
-        euclidean = (user_local_fea - item_local_fea.permute(0, 1, 3, 2)).pow(2).sum(1).sqrt()
-        attention_matrix = 1.0 / (1 + euclidean)
-        user_attention = attention_matrix.sum(2)
-        item_attention = attention_matrix.sum(1)
+        # euclidean = (user_local_fea - item_local_fea.permute(0, 1, 3, 2)).pow(2).sum(1).sqrt()
+        diff = user_local_fea - item_local_fea  # [B, H, L, 1]
+        dist = torch.sqrt((diff * diff).sum(dim=1))  # soma em H -> [B, L, 1]
+        att = 1.0 / (1.0 + dist.squeeze(-1))  # [B, L]
+
+        user_attention = att  # [B, L]
+        item_attention = att  # [B, L]  (ou compute separado se quiser)
 
         user_doc_fea = self.local_pooling_cnn(user_local_fea, user_attention, self.user_abs_cnn, self.user_fc)
         item_doc_fea = self.local_pooling_cnn(item_local_fea, item_attention, self.item_abs_cnn, self.item_fc)
@@ -58,7 +59,7 @@ class DAML(nn.Module):
         return use_fea, item_fea
 
     def local_attention_cnn(self, word_embs, doc_cnn):
-        
+
         local_att_words = self.word_cnn(word_embs.unsqueeze(1))
         local_word_weight = torch.sigmoid(local_att_words.squeeze(1))
         word_embs = word_embs * local_word_weight
@@ -66,21 +67,23 @@ class DAML(nn.Module):
         return d_fea
 
     def local_pooling_cnn(self, feature, attention, cnn, fc):
-        
+        # feature: [B, filters, L, 1]
+        # attention: [B, L]
         bs, n_filters, doc_len, _ = feature.shape
-        feature = feature.permute(0, 3, 2, 1)  # bs * 1 * doc_len * embed
-        attention = attention.reshape(bs, 1, doc_len, 1)  # bs * doc
-        pools = feature * attention
-        pools = self.unfold(pools)
-        pools = pools.reshape(bs, 3, n_filters, doc_len)
-        pools = pools.sum(dim=1, keepdims=True)  # bs * 1 * n_filters * doc_len
-        pools = pools.transpose(2, 3)  # bs * 1 * doc_len * n_filters
 
-        abs_fea = cnn(pools).squeeze(3)  # ? (DOC_LEN-2), 100
-        abs_fea = F.avg_pool1d(abs_fea, abs_fea.size(2))  # ? 100
-        abs_fea = F.relu(fc(abs_fea.squeeze(2)))  # ? 32
+        # OTIMIZAÇÃO: Multiplicação direta via broadcast
+        pools = feature * attention.view(bs, 1, doc_len, 1)
 
-        return abs_fea
+        # Em vez de Unfold + Sum (que tenta simular uma janela),
+        # use uma convolução com pesos 1 ou apenas a própria CNN de abstração
+        # dependendo da sua necessidade de vizinhança.
+
+        # Ajuste para formato NCHW aceito pela CNN: [B, 1, doc_len, n_filters]
+        pools = pools.permute(0, 3, 2, 1).contiguous()
+
+        abs_fea = cnn(pools).squeeze(3)
+        abs_fea = F.adaptive_avg_pool1d(abs_fea, 1)  # Mais rápido que avg_pool1d manual
+        return F.relu(fc(abs_fea.squeeze(2)))
 
     def reset_para(self):
 

@@ -37,29 +37,38 @@ class CARL(nn.Module):
         uids_emb = self.u_emb(uids)
         iids_emb = self.i_emb(iids)
 
+        # CNNs
         user_fea = F.relu(self.user_cnn(user_fea.unsqueeze(1)).squeeze(3))
         item_fea = F.relu(self.item_cnn(item_fea.unsqueeze(1)).squeeze(3))
 
-        relation_matrix = torch.matmul(user_fea.transpose(1,2), self.att_matrix)
-        relation_matrix = F.tanh(torch.matmul(relation_matrix, item_fea))
+        user_fea = user_fea.transpose(1, 2)
+        item_fea = item_fea.transpose(1, 2)
 
-        user_att = F.softmax(torch.mean(relation_matrix, 1), dim=1).unsqueeze(1)
-        item_att = F.softmax(torch.mean(relation_matrix, 2), dim=1).unsqueeze(1)
+        # Atenção Bilinear
+        rel_tmp = torch.matmul(user_fea, self.att_matrix)
 
-        user_fea = user_fea * user_att
-        item_fea = item_fea * item_att
+        relation_matrix = torch.matmul(rel_tmp, item_fea.transpose(1, 2))
+        relation_matrix.tanh_()
 
+        user_att = F.softmax(torch.mean(relation_matrix, dim=2), dim=1).unsqueeze(2)
+        item_att = F.softmax(torch.mean(relation_matrix, dim=1), dim=1).unsqueeze(2)
+
+        del relation_matrix
+
+        # Multiplicação e volta para [B, F, L]
+        user_fea = (user_fea * user_att).transpose(1, 2)
+        item_fea = (item_fea * item_att).transpose(1, 2)
+
+        # CNNs de abstração - Squeeze(3) específico
         user_fea = self.abstract_user_cnn(user_fea.unsqueeze(3)).squeeze(3)
         item_fea = self.abstract_item_cnn(item_fea.unsqueeze(3)).squeeze(3)
 
-
+        # MLP Final
         user_fea = self.shared_mlp(user_fea).squeeze(1)
         item_fea = self.shared_mlp(item_fea).squeeze(1)
 
-        abstratic_fea = torch.stack([(user_fea * item_fea), user_fea, item_fea], 1)
-        interaction_fea = torch.stack([(uids_emb * iids_emb), uids_emb, iids_emb], 1)
-
-        return abstratic_fea, interaction_fea
+        return torch.stack([(user_fea * item_fea), user_fea, item_fea], 1), \
+               torch.stack([(uids_emb * iids_emb), uids_emb, iids_emb], 1)
 
     def reset_para(self):
         if self.opt.use_word_embedding:

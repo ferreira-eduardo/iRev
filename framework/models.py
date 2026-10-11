@@ -63,6 +63,10 @@ class Model(nn.Module):
             return user_feature, item_feature
 
 
+        return self.predict_from_features(user_feature, item_feature, uids, iids)
+
+    # @FUSION + PREDICTION FROM NET FEATURES (reused by the full-catalog ranking)
+    def predict_from_features(self, user_feature, item_feature, uids, iids):
         # THROW FUSION NET
         ui_feature = self.fusion_net(user_feature, item_feature)
         ui_feature = self.dropout(ui_feature)
@@ -71,16 +75,20 @@ class Model(nn.Module):
         output = self.predict_net(ui_feature, uids, iids).squeeze(1)
 
         return output
+
+    # @TRUE WHEN forward() ENDS IN FUSION + PREDICTION (no direct/man/transnet output)
+    def has_fusion_head(self):
+        return not (self.opt.direct_output or self.opt.man or self.opt.transnet)
     
     # @LOAD TRAINED NETWORKS
     def load(self, path):
-        
-        self.load_state_dict(torch.load(path))
+        state_dict = torch.load(path, map_location='cuda', weights_only=False)
+        self.load_state_dict(state_dict)
 
     # @SAVE TRAINED NETWORKS
     def save(self, epoch=None, name=None, opt=None):
         
-        prefix = 'checkpoints/'
+        prefix = 'checkpoints/loocv/'
         if name is None:
             name = prefix + self.model_name + '_'
             name = time.strftime(name + '%m%d_%H:%M:%S.pth')

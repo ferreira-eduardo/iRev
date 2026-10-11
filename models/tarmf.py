@@ -17,6 +17,17 @@ class TARMF(nn.Module):
     def __init__(self, opt):
         super(TARMF, self).__init__()
 
+        raw_u_feat = np.load(f"checkpoints/user_features_pmf_{opt.dataset}_{opt.emb_opt}.npy")
+        raw_i_feat = np.load(f"checkpoints/item_features_pmf_{opt.dataset}_{opt.emb_opt}.npy")
+
+        u_padded = np.zeros((opt.user_num, raw_u_feat.shape[1]))
+        i_padded = np.zeros((opt.item_num, raw_i_feat.shape[1]))
+
+        u_limit = min(opt.user_num, raw_u_feat.shape[0])
+        i_limit = min(opt.item_num, raw_i_feat.shape[0])
+        u_padded[:u_limit, :] = raw_u_feat[:u_limit, :]
+        i_padded[:i_limit, :] = raw_i_feat[:i_limit, :]
+
         self.num_fea = 2
         self.opt = opt
 
@@ -28,7 +39,7 @@ class TARMF(nn.Module):
 
         self.user_topic_att = nn.Sequential(
                             nn.Linear(2, 1),
-                            nn.Tanh() 
+                            nn.Tanh()
         )
         self.item_topic_att = nn.Sequential(
                             nn.Linear(2, 1),
@@ -45,14 +56,18 @@ class TARMF(nn.Module):
                             nn.Tanh()
         )
 
-        self.user_features = torch.Tensor(np.load(f"checkpoints/user_features_pmf_{opt.dataset}_{opt.emb_opt}.npy")).to('cuda')
-        self.item_features = torch.Tensor(np.load(f"checkpoints/item_features_pmf_{opt.dataset}_{opt.emb_opt}.npy")).to('cuda')
+        self.user_features = torch.from_numpy(u_padded).float().to('cuda')
+        self.item_features = torch.from_numpy(i_padded).float().to('cuda')
 
         self.reset_para()
 
-    
+
     def forward(self, datas):
         user_reviews, item_reviews, uids, iids, user_item2id, item_user2id, user_doc, item_doc = datas
+
+        # No forward do TARMF (tarmf.py), adicione antes do erro:
+        # if uids.max() >= self.user_embeddings.num_embeddings:
+        #     print(f"ERRO: ID de usuário {uids.max()} excede o limite {self.user_embeddings.num_embeddings}")
 
         u_emb = self.user_embeddings(user_doc)
         i_emb = self.item_embeddings(item_doc)

@@ -1,457 +1,472 @@
 # -*- encoding: utf-8 -*-
-import time
-import random
-import math
-import fire
-import os
+"""Treino e avaliação no protocolo de seeds.
 
-import numpy as np
+Split fixo (fold_0 do dataset; sem LOOCV por folds, os dados são esparsos demais),
+uma execução por seed para medir a variação do modelo. A época é escolhida pelo
+nDCG@10 da validação ranqueando todo o catálogo do treino, e o melhor checkpoint
+recebe o relatório completo de new_evaluation na validação e no teste.
+
+    python main.py train --dataset=All_Beauty_data --model=MPCN --seeds=[1,2,3]
+    python main.py test  --dataset=All_Beauty_data --model=MPCN --seeds=[1,2,3]
+    python main.py summary --dataset=All_Beauty_data
+"""
+import gc
+import os
+import random
+from contextlib import contextmanager
+
+import fire
 import pandas as pd
-import torch
-import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from torch.nn import functional as F
+from tqdm import tqdm
 
+# IMPORTAÇÕES DO SEU PROJETO
+import config
+import models
 from dataset import ReviewData
 from framework import Model
-import models
-import config
+from new_evaluation.new_evaluation import SELECTION, Protocol, pair_scorer, save_report, summarize
 from utils.utils import *
 
-from metrics.ndcg import ndcg_metric
-from metrics.novelty import novelty
-from metrics.diversity import diversity
-from metrics.IntraListDiversity import intra_list_dissimilarity
+# torch.set_float32_matmul_precision('high')
+#
+# torch.backends.cudnn.benchmark = True
 
-# @TRAIN FUNCTION 
-def train(**kwargs):
+RESULTS_DIR = "results/new_protocol"
+CHECKPOINT_DIR = "checkpoints/seeds"
+REPORTED = ("ndcg@10", "recall@10", "coverage@10", "aplt@10", "novelty@10")
 
-    # kwargs = {"argumento": "value"}
-    # kwargs = [(arg, value), (arg2, value2)...]
 
-    # DATASET LOADING
+def device_arrays(opt):
+    """Tabelas de reviews, docs e vizinhos no device, carregadas uma vez por opt.
+
+    O ranking sobre todo o catálogo faz milhões de forwards; indexar no device
+    evita copiar as mesmas linhas da CPU a cada lote.
+    """
+    if getattr(opt, "_device_arrays", None) is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        tables = {
+            "users_review_list": opt.users_review_list,
+            "items_review_list": opt.items_review_list,
+            "user2itemid_list": opt.user2itemid_list,
+            "item2userid_list": opt.item2userid_list,
+            "user_doc": opt.user_doc,
+            "item_doc": opt.item_doc,
+        }
+        opt._device_arrays = {k: torch.from_numpy(v.astype(np.int64)).to(device) for k, v in tables.items()}
+    return opt._device_arrays
+
+
+def unpack_input(opt, x):
+    """
+    Refatorado para ser compatível com processamento em lote e diversos tipos de entrada.
+    """
+    if isinstance(x, (list, tuple)):
+        # Se for uma lista de pares [(u1, i1), ...] vinda do zip ou DataLoader
+        x = np.array(x)
+
+    t = device_arrays(opt)
+    device = t["users_review_list"].device
+    uids = torch.from_numpy(x[:, 0].astype(np.int64)).to(device)
+    iids = torch.from_numpy(x[:, 1].astype(np.int64)).to(device)
+
+    return [
+        t["users_review_list"][uids],
+        t["items_review_list"][iids],
+        uids,
+        iids,
+        t["user2itemid_list"][uids],
+        t["item2userid_list"][iids],
+        t["user_doc"][uids],
+        t["item_doc"][iids],
+    ]
+
+
+def model_output(model, opt, pairs):
+    """Nota prevista para cada par (usuário, item), como no treino."""
+    output = model(unpack_input(opt, pairs))
+    # Se o modelo retorna tupla (como ALFM), pegamos apenas a predição
+    if isinstance(output, tuple):
+        output = output[0]
+    return output.reshape(-1)
+
+
+@contextmanager
+def eval_rng(seed):
+    """RNG próprio para a avaliação: modelos com amostragem no forward (o gumbel do MPCN
+    continua amostrando em eval) dão o mesmo ranking para a mesma seed, e o fluxo
+    aleatório do treino não é afetado."""
+    devices = [torch.cuda.current_device()] if torch.cuda.is_available() else []
+    with torch.random.fork_rng(devices=devices):
+        torch.manual_seed(seed)
+        yield
+
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
+def load_opt(kwargs):
     if 'dataset' not in kwargs:
         raise Exception("Dataset not provided.")
-    else:
-        opt = getattr(config, kwargs['dataset'] + '_Config')()
+    opt = getattr(config, kwargs['dataset'] + '_Config')()
+    opt.parse(dict(kwargs, fold_idx=0))  # split fixo: sempre a fold_0 do dataset
+    if not isinstance(opt.seeds, (list, tuple)):
+        opt.seeds = [opt.seeds]
+    return opt
 
-    opt.parse(kwargs) 
 
-    # PARALLEL CONFIG
-    random.seed(opt.seed)
-    np.random.seed(opt.seed)
-    torch.manual_seed(opt.seed)
-    if opt.use_gpu:
-        torch.cuda.manual_seed_all(opt.seed)
-
-    if len(opt.gpu_ids) == 0 and opt.use_gpu:
-        torch.cuda.set_device(opt.gpu_id)
-
-    # IMPORT MODEL
-    if 'model' not in kwargs:
-        raise Exception("Model not provided.")
-    
-    if opt.bert == "zeroshot":
-        opt.model = f"{opt.model}_ZeroShot"
-        model = Model(opt, getattr(models, opt.model))
-    elif opt.bert == "finetunning":
-        opt.model = f"{opt.model}_FineTunning"
-        model = Model(opt, getattr(models, opt.model))
-    else:
-        model = Model(opt, getattr(models, opt.model))
-    print(f"Model: {opt.model}")
-
-    # SENDING MODEL TO GPU, IF EXISTS
+def build_model(opt):
+    model = Model(opt, getattr(models, opt.model))
     if opt.use_gpu:
         model.cuda()
-        if len(opt.gpu_ids) > 0:
-            model = nn.DataParallel(model, device_ids=opt.gpu_ids)
-
-    # EXCEPTION FEATURES ERROR
-    if model.net.num_fea != opt.num_fea:
-        raise ValueError(f"the num_fea of {opt.model} is error, please specific --num_fea={model.net.num_fea}")
-    
-    # LOAD INTERACTIONS
-    train_data = ReviewData(opt.data_root, mode="Train")
-    train_data_loader = DataLoader(train_data, batch_size=opt.batch_size, shuffle=True, collate_fn=collate_fn)
-    val_data = ReviewData(opt.data_root, mode="Val")
-    val_data_loader = DataLoader(val_data, batch_size=opt.batch_size, shuffle=False, collate_fn=collate_fn)
-
-    print(f'train data: {len(train_data)}; test data: {len(val_data)}')
-
-    # OPTMIZERS
-    optimizer = optim.Adam(model.parameters(), lr=opt.lr, weight_decay=opt.weight_decay)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.8)
-
-    if opt.transnet:
-        
-        target_optim = optim.Adam(model.net.target_net.parameters(), lr=opt.lr, weight_decay=opt.weight_decay)
-        target_sr = optim.lr_scheduler.StepLR(target_optim, step_size=5, gamma=0.8)
-
-        trans_optim = optim.Adam(model.net.source_net.trans_param(), lr=opt.lr, weight_decay=opt.weight_decay)
-        trans_sr = optim.lr_scheduler.StepLR(trans_optim, step_size=5, gamma=0.8)
-
-    # TRAINING STAGE
-    print("start training....")
-    min_loss = 1e+10
-    best_res = 1e+10
-    mse_func = nn.MSELoss()
-    mae_func = nn.L1Loss()
-    smooth_mae_func = nn.SmoothL1Loss()
-
-    for epoch in range(opt.num_epochs):
-
-        total_loss = 0.0
-        total_maeloss = 0.0
-
-        # MODEL IN TRAIN STAGE
-        model.train()
-        print(f"{now()}  Epoch {epoch}...")
-
-        for idx, (train_datas, scores) in enumerate(train_data_loader):
-            if opt.use_gpu:
-                scores = torch.FloatTensor(scores).cuda()
-            else:
-                scores = torch.FloatTensor(scores)
-                
-            # UNPACK NEDDED INPUTS
-            train_datas = unpack_input(opt, train_datas)
-
-            # RESET GRADIENT FOR BACKPROPAGATION
-            optimizer.zero_grad()
-
-            # PREDICT OUTPUT
-            '''
-                Transnet Operation
-            '''
-            if opt.transnet:
-
-                l1, l2 = model(train_datas)
-                s_lat, output, t_lat, t_pred = l1[0], l1[1], l2[0], l2[1]
+    return model
 
 
-                loss_t = F.l1_loss(t_pred, scores)
-                target_optim.zero_grad()
-                loss_t.backward()
-                target_optim.step()
+def checkpoint_path(opt, seed):
+    return f"{CHECKPOINT_DIR}/{opt.model}_{opt.dataset}_seed{seed}_{opt.emb_opt}.pth"
 
-                loss_trans = F.mse_loss(s_lat, t_lat.detach())
-                trans_optim.zero_grad()
-                loss_trans.backward()
-                trans_optim.step()
 
-            else:
+def results_path(opt, name):
+    return f"{RESULTS_DIR}/{opt.dataset}/{name}.csv"
 
-                output = model(train_datas)
 
-            
+# @PREDICT: REGRESSÃO (MSE)
+@torch.no_grad()
+def regression_mse(model, data_loader, opt):
+    model.eval()
+    total_mse = 0.0
+    for pairs, scores in tqdm(data_loader, desc="Regressão", leave=False):
+        scores = torch.as_tensor(scores, dtype=torch.float32, device=device_arrays(opt)["user_doc"].device)
+        total_mse += F.mse_loss(model_output(model, opt, pairs), scores, reduction='sum').item()
+    return total_mse / len(data_loader.dataset)
 
-            # CALCULATE LOSSES
-            mse_loss = mse_func(output, scores)
-            total_loss += mse_loss.item() * len(scores)
 
-            mae_loss = mae_func(output, scores)
-            total_maeloss += mae_loss.item()
-            smooth_mae_loss = smooth_mae_func(output, scores)
+def batched(fn, opt, n):
+    """torch.cat de fn(a, b) sobre [0, n) em fatias de até opt.eval_batch.
 
-            # LOSS FUNCTION METHOD
-            if opt.loss_method == 'mse':
-                loss = mse_loss
-            if opt.loss_method == 'rmse':
-                loss = torch.sqrt(mse_loss) / 2.0
-            if opt.loss_method == 'mae':
-                loss = mae_loss
-            if opt.loss_method == 'smooth_mae':
-                loss = smooth_mae_loss
+    A memória por par varia muito entre modelos (co-atenção palavra a palavra no MPCN,
+    por exemplo), então a fatia cai pela metade a cada falta de memória e fica assim
+    para o resto da execução.
+    """
+    opt.eval_batch = getattr(opt, "eval_batch", opt.eval_pairs)
+    while True:
+        try:
+            return torch.cat([fn(a, min(a + opt.eval_batch, n)) for a in range(0, n, opt.eval_batch)])
+        except torch.OutOfMemoryError:
+            if opt.eval_batch == 1:
+                raise
+            torch.cuda.empty_cache()
+            opt.eval_batch //= 2
+            print(f"[OOM] reduzindo o lote de avaliação para {opt.eval_batch} pares")
 
-            # BACKPROPAGATION
-            loss.backward()
-            optimizer.step()
 
-            if opt.fine_step:
-                if idx % opt.print_step == 0 and idx > 0:
-                    print("\t{}, {} step finised;".format(now(), idx))
-                    val_loss, val_mse, val_mae = predict(model, val_data_loader, opt)
-                    if val_loss < min_loss:
-                        model.save(name=opt.dataset, opt=opt.emb_opt)
-                        min_loss = val_loss
-                        print("\tmodel save")
-                    if val_loss > min_loss:
-                        best_res = min_loss
+def pairwise_scorer(model, opt, items):
+    """Um forward completo por par (usuário, item): serve para qualquer modelo."""
+    return pair_scorer(lambda pairs: batched(lambda a, b: model_output(model, opt, pairs[a:b]), opt, len(pairs)),
+                       items, opt.eval_pairs)
 
-        # SMOOTHING BACKPROPAGATION
-        scheduler.step()
 
-        if opt.transnet:
-            target_sr.step()
-            trans_sr.step()
-        
-        mse = total_loss * 1.0 / len(train_data)
-        print(f"\ttrain data: loss:{total_loss:.4f}, mse: {mse:.4f};")
+def tower_scorer(model, opt, items):
+    """Para redes separáveis (lado do usuário só depende do usuário, idem para o item).
 
-        # VALIDATION TESTING FOR MODEL SAVE
-        val_loss, val_mse, val_mae = predict(model, val_data_loader, opt)
-        if val_loss < min_loss:
-            model.save(name=opt.dataset, opt=opt.emb_opt)
-            min_loss = val_loss
-            print("model save")
-        if val_mse < best_res:
-            best_res = val_mse
-        print("*"*30)
+    As features de todos os itens saem uma vez e as de cada usuário uma vez por lote;
+    por par só rodam a fusão e a predição. Só vale para os pesos atuais.
+    """
+    catalog = np.asarray(items, dtype=np.int64)
+    device = device_arrays(opt)["user_doc"].device
+    catalog_t = torch.from_numpy(catalog).to(device)
 
-    print("----"*20)
-    print(f"{now()} {opt.dataset} {opt.emb_opt} best_res:  {best_res}")
-    print("----"*20)
+    def net_features(users, its):
+        return model.net(unpack_input(opt, np.stack([users, its], axis=1)))
+
+    # cada item pareado com um usuário qualquer: numa rede separável o lado do item não muda
+    item_fea = batched(lambda a, b: net_features(np.zeros(b - a, dtype=np.int64), catalog[a:b])[1],
+                       opt, len(catalog))
+
+    def scores(users):
+        users = np.asarray(users, dtype=np.int64)
+        user_fea = batched(lambda a, b: net_features(users[a:b], np.resize(catalog, b - a))[0], opt, len(users))
+        users_t = torch.from_numpy(users).to(device)
+        n = len(catalog)
+
+        def block(a, b):
+            k = torch.arange(a, b, device=device)
+            u, i = k // n, k % n
+            return model.predict_from_features(user_fea[u], item_fea[i], users_t[u], catalog_t[i]).reshape(-1)
+
+        return batched(block, opt, len(users) * n).reshape(len(users), n)
+
+    return scores
+
+
+def factorized_scorer(model, opt, items):
+    """Para redes com user_side/item_side/score_matrix (LETTER): sem cabeça de fusão,
+    o score é um produto interno, então o catálogo é codificado uma vez e cada lote
+    de usuários vira um matmul. Só vale para os pesos atuais."""
+    net = model.net
+    device = device_arrays(opt)["user_doc"].device
+    catalog_t = torch.from_numpy(np.asarray(items, dtype=np.int64)).to(device)
+    item_side = batched(lambda a, b: net.item_side(catalog_t[a:b]), opt, len(catalog_t))
+
+    def scores(users):
+        users_t = torch.from_numpy(np.asarray(users, dtype=np.int64)).to(device)
+        user_side = batched(lambda a, b: net.user_side(users_t[a:b]), opt, len(users_t))
+        return net.score_matrix(user_side, item_side)
+
+    return scores
+
+
+@torch.no_grad()
+def model_scorer(model, opt, protocol):
+    """score_fn(users) -> (b, N) sobre o catálogo do protocolo.
+
+    Usa tower_scorer quando ele reproduz o forward par a par numa amostra (redes
+    separáveis, sem amostragem no forward); senão, pairwise_scorer.
+    """
+    model.eval()
+    slow = pairwise_scorer(model, opt, protocol.items)
+    if hasattr(model.net, "score_matrix"):
+        fast = factorized_scorer(model, opt, protocol.items)
+        users = protocol.rows["val"]["user"].unique()[:2].tolist()
+        sample = pairwise_scorer(model, opt, protocol.items[:256])(users)
+        if torch.allclose(fast(users)[:, :256], sample, rtol=1e-4, atol=1e-4):
+            return fast
+        print("[EVAL] factorized_scorer diverge do forward par a par; usando pairwise_scorer")
+    if not model.has_fusion_head():
+        return slow
+    try:
+        fast = tower_scorer(model, opt, protocol.items)
+        users = protocol.rows["val"]["user"].unique()[:2].tolist()
+        sample = pairwise_scorer(model, opt, protocol.items[:256])(users)
+        if torch.allclose(fast(users)[:, :256], sample, rtol=1e-4, atol=1e-5):
+            return fast
+    except Exception as e:  # saídas da rede fora do formato (B, num_fea, D)
+        print(f"[EVAL] tower_scorer indisponível ({type(e).__name__}: {e})")
+    return slow
+
+
+def evaluate(score_fn, opt, protocol, name, info):
+    """Relatório completo na validação e no teste, salvo em results/new_protocol/<dataset>/<name>.csv."""
+    with eval_rng(info["seed"]):
+        reports = {split: protocol.report(score_fn, split, opt.eval_users) for split in ("val", "test")}
+    save_report(results_path(opt, name), {"dataset": opt.dataset, **info}, reports)
+    for split, metrics in reports.items():
+        print(f"  {split}: " + " | ".join(f"{k}={metrics[k]:.4f}" for k in REPORTED))
+    return reports
+
+
+def evaluate_popularity(opt, protocol):
+    print("[REFERÊNCIA] Popularidade no treino")
+    evaluate(protocol.popularity_scorer(), opt, protocol, "Popularity",
+             {"model": "Popularity", "seed": 0, "epoch": None})
 
 
 # @TEST FUNCTION
 def test(**kwargs):
+    opt = load_opt(kwargs)
+    protocol = Protocol(opt.data_root)
+    print(protocol.describe())
+    torch.set_grad_enabled(False)
 
-    if 'dataset' not in kwargs:
-        raise Exception("Dataset not provided.")
-    else:
-        opt = getattr(config, kwargs['dataset'] + '_Config')()
-    opt.parse(kwargs)
+    for seed in opt.seeds:
+        path = checkpoint_path(opt, seed)
+        print(f"\n{'=' * 50}")
+        print(f"TESTANDO: {opt.model} | DATASET: {opt.dataset} | SEED: {seed}")
+        print(f"CHECKPOINT: {path}")
+        print(f"{'=' * 50}")
 
-    if opt.bert == "zeroshot":
-        opt.model = f"{opt.model}_ZeroShot"
-    elif opt.bert == "finetunning":
-        opt.model = f"{opt.model}_FineTunning"
+        if not os.path.exists(path):
+            print(f"[SKIP] Arquivo não encontrado: {path}")
+            continue
 
-    opt.pth_path = f"checkpoints/{opt.model}_{opt.dataset}_{opt.emb_opt}.pth"
+        # mantém a melhor época registrada no treino, se houver
+        name = f"{opt.model}_seed{seed}"
+        epoch = pd.read_csv(results_path(opt, name))["epoch"].iloc[0] if os.path.exists(results_path(opt, name)) else None
 
-    # PARALLEL CONFIG
-    assert(len(opt.pth_path) > 0)
-    random.seed(opt.seed)
-    np.random.seed(opt.seed)
-    torch.manual_seed(opt.seed)
+        model = build_model(opt)
+        model.load(path)
+        evaluate(model_scorer(model, opt, protocol), opt, protocol, name,
+                 {"model": opt.model, "seed": seed, "epoch": epoch})
 
-    if opt.use_gpu:
-        torch.cuda.manual_seed_all(opt.seed)
+        del model
+        torch.cuda.empty_cache()
+        gc.collect()
 
-    if len(opt.gpu_ids) == 0 and opt.use_gpu:
-        torch.cuda.set_device(opt.gpu_id)
-
-    model = Model(opt, getattr(models, opt.model))
-    print(f"Model: {opt.model}")
-    
-    if opt.use_gpu:
-        model.cuda()
-        if len(opt.gpu_ids) > 0:
-            model = nn.DataParallel(model, device_ids=opt.gpu_ids)
-
-    if model.net.num_fea != opt.num_fea:
-        raise ValueError(f"the num_fea of {opt.model} is error, please specific --num_fea={model.net.num_fea}")
-
-    model.load(opt.pth_path)
-    print(f"load model: {opt.pth_path}")
-    test_data = ReviewData(opt.data_root, mode="Test")
-    test_data_loader = DataLoader(test_data, batch_size=opt.batch_size, shuffle=False, collate_fn=collate_fn)
-    print(f"{now()}: test in the test dataset")
-    predict_loss, test_mse, test_mae = predict(model, test_data_loader, opt)
+    summary(dataset=opt.dataset)
 
 
-# @PREDICT OUTPUT FUNCTION
-def predict(model, data_loader, opt):
-    total_loss = 0.0
-    total_maeloss = 0.0
+def summary(dataset, split="test"):
+    """Média ± desvio entre seeds por modelo (results/new_protocol/<dataset>/summary.csv)."""
+    table = summarize(f"{RESULTS_DIR}/{dataset}", split)
+    cols = ["seeds"] + [f"{m}_{s}" for m in REPORTED for s in ("mean", "std") if f"{m}_{s}" in table]
+    print(f"\n[{split}] média e desvio entre seeds:\n{table[cols].round(4).to_string()}")
 
-    mse_values = []
-    mae_values = []
-    rmse_values = []
-    ndcg_values = []
-    precision_values = []
-    recall_values = []
-    novelty_values = []
-    diversity_values = []
-    
-    # MODEL IN EVALUTATION STAGE
-    model.eval()
 
-    # WITHOUT GRADIENT
-    with torch.no_grad():
-        for idx, (test_data, scores) in enumerate(data_loader):
-            if opt.use_gpu:
-                scores = torch.FloatTensor(scores).cuda()
+def model_objective(opt):
+    """'bpr' para modelos de feedback implícito (LightGCN), 'mse' para os de nota."""
+    return getattr(getattr(models, opt.model), "objective", "mse")
+
+
+def negative_sampler(train_pairs, opt):
+    """Negativos uniformes entre os itens do treino, fora do histórico de treino do usuário
+    (UniformSample do LightGCN). Colisões são resorteadas algumas vezes."""
+    device = device_arrays(opt)["user_doc"].device
+    pairs = torch.from_numpy(np.asarray(train_pairs, dtype=np.int64)).to(device)
+    items = torch.unique(pairs[:, 1])
+    seen = torch.unique(pairs[:, 0] * opt.item_num + pairs[:, 1])
+
+    def sample(users):
+        neg = items[torch.randint(len(items), users.shape, device=device)]
+        for _ in range(10):
+            hit = torch.isin(users * opt.item_num + neg, seen)
+            if not hit.any():
+                break
+            neg[hit] = items[torch.randint(len(items), (int(hit.sum()),), device=device)]
+        return neg
+
+    return sample
+
+
+# @TRAIN LOOP
+def train_seed(kwargs, seed, protocol, train_data, val_data):
+    """Treina uma seed. Modelos de nota (MSE): a época (e a parada antecipada) é escolhida pelo
+    menor MSE da validação; o nDCG@10 só é registrado. Modelos BPR (LightGCN): treinados com
+    BPR e escolhidos pelo nDCG@10 da validação, como no artigo. Devolve o critério a minimizar
+    da melhor época (MSE, ou -nDCG@10 para BPR)."""
+    opt = load_opt(kwargs)
+    set_seed(seed)
+
+    print(f"\n{'#' * 40}\nSEED {seed}\n{'#' * 40}")
+    print(f"Training: {opt.model} | DATASET: {opt.dataset} | SEED: {seed}")
+
+    model = build_model(opt)
+
+    # model = torch.compile(model)
+    # torch.backends.cudnn.benchmark = True
+
+    train_loader = DataLoader(train_data, batch_size=opt.batch_size, shuffle=True,
+                              collate_fn=collate_fn, num_workers=opt.num_workers, pin_memory=True)
+    val_loader = DataLoader(val_data, batch_size=opt.batch_size, shuffle=False, collate_fn=collate_fn)
+
+    bpr = model_objective(opt) == "bpr"
+    # BPR: a regularização é o L2 dos embeddings dentro de bpr_loss (lgcn_decay), não o weight_decay do Adam
+    weight_decay = 0 if bpr else opt.weight_decay
+    params = model.parameters()
+    if hasattr(model.net, "no_decay_parameters"):
+        # vieses por usuário/item fora do weight_decay: o L2 acoplado do Adam encolhe todas as
+        # linhas a cada passo, e quem tem 1-2 avaliações perde o próprio viés (IMDB, só vieses:
+        # MSE de validação 6.06 com weight_decay=1e-3 contra 5.37 sem)
+        no_decay = {id(p) for p in model.net.no_decay_parameters()}
+        params = list(params)
+        params = [{"params": [p for p in params if id(p) not in no_decay]},
+                  {"params": [p for p in params if id(p) in no_decay], "weight_decay": 0.0}]
+    optimizer = optim.Adam(params, lr=opt.lr, weight_decay=weight_decay)
+    if bpr:
+        sample_negatives = negative_sampler(train_data.data, opt)
+    # tuning (grid_search.py): só o MSE da validação importa; nada de checkpoint nem ranking,
+    # para não sobrescrever os resultados e checkpoints das execuções reportadas
+    path = None if opt.tuning else checkpoint_path(opt, seed)
+    if path:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    best_epoch, best_crit, waited = -1, float("inf"), 0
+    crit_name = f"Val {SELECTION}" if bpr else "Val MSE"
+    # Ranking da validação a cada eval_every épocas (o LightGCN original avalia a cada 10);
+    # para BPR a paciência conta avaliações, não épocas
+    eval_every = opt.eval_every or (10 if bpr else 1)
+    for epoch in range(opt.num_epochs):
+        model.train()
+        total_train_loss = 0
+
+        for batch_data, scores in tqdm(train_loader, desc=f"Seed {seed} - Epoch {epoch}"):
+            # Converte scores para Float e move para GPU
+            scores = torch.FloatTensor(scores).cuda() if opt.use_gpu else torch.FloatTensor(scores)
+
+            optimizer.zero_grad()
+            if bpr:
+                _, _, users, pos = unpack_input(opt, batch_data)[:4]
+                # num_negatives > 1 (MAGCL): neg vira (B, k); LightGCN segue com um por positivo
+                k = getattr(model.net, "num_negatives", 1)
+                neg = sample_negatives(users.unsqueeze(1).expand(-1, k) if k > 1 else users)
+                loss = model.net.bpr_loss(users, pos, neg)
             else:
-                scores = torch.FloatTensor(scores)
+                output = model_output(model, opt, batch_data)
+                loss = F.mse_loss(output, scores, reduction='mean')
+            loss.backward()
+            optimizer.step()
 
-            test_data = unpack_input(opt, test_data)
+            total_train_loss += loss.item()
 
-            if opt.transnet:
-                output, _ = model(test_data)
-                output = output[1]
-            else:
-                output = model(test_data)
+        log = f"Epoch {epoch} Finalizada. Train Loss: {total_train_loss / len(train_loader):.4f}"
+        rank_epoch = (epoch + 1) % eval_every == 0 or epoch == opt.num_epochs - 1
+        if not bpr:
+            val_mse = regression_mse(model, val_loader, opt)
+            crit = val_mse
+            log += f" | Val MSE: {val_mse:.4f}"
+        if rank_epoch and (bpr or not opt.tuning):
+            with eval_rng(seed):
+                val = protocol.accuracy(model_scorer(model, opt, protocol), "val", opt.eval_users)
+            if bpr:
+                crit = -val[SELECTION]
+            log += f" | Val {SELECTION}: {val[SELECTION]:.4f} | Val recall@10: {val['recall@10']:.4f}"
+        print(log)
+        if bpr and not rank_epoch:
+            continue  # BPR só é selecionado (e conta paciência) nas épocas avaliadas
 
-            mse_loss = torch.mean((output-scores)**2)
-            total_loss += mse_loss.item()
+        if crit < best_crit:
+            best_crit, best_epoch, waited = crit, epoch, 0
+            if path:
+                torch.save(model.state_dict(), path)
+            print(f"--> Melhoria: {crit_name} {abs(best_crit):.4f}")
+        else:
+            waited += 1
+            if waited >= opt.patience:
+                unit = f"avaliações (a cada {eval_every} épocas)" if bpr else "épocas"
+                print(f"Parada antecipada: {opt.patience} {unit} sem melhora no {crit_name}")
+                break
 
-            mae_loss = torch.mean(abs(output-scores))
-            total_maeloss += mae_loss.item()
-
-            rmse, precision, recall = calculate_metrics(scores, output)
-            novel = novelty(scores.cpu().tolist(), output.cpu().tolist())
-            # diver = diversity(scores.cpu().tolist(), output.cpu().tolist())
-
-            mse_values.append(mse_loss.cpu().item())
-            rmse_values.append(rmse.item())
-            mae_values.append(mae_loss.cpu().item())
-            precision_values.append(precision.item())
-            recall_values.append(recall.item())
-            novelty_values.append(novel)
-            # diversity_values.append(diver)
-
-    if opt.ranking_metrics:
-        iteractions, scores = next(iter(data_loader))
-        
-        user_ids = set([x[0] for x in iteractions])
-        item_ids = set([x[1] for x in iteractions])
-
-        with torch.no_grad():
-            for user in user_ids:
-                test_data = unpack_input(opt, zip([user], [0]))
-                # test_data = unpack_input(opt, zip([user]*len(item_ids), item_ids))
-
-                # Here, I have the itens that my user consume
-                user_itens = test_data[4].cpu().tolist()[0]
-
-                n_id_itens = opt.item_num - 1
-                user_itens = [x for x in user_itens if x < n_id_itens]
-
-                test_data = unpack_input(opt, zip([user]*len(user_itens), user_itens))
-
-                if opt.transnet:
-                    output, _ = model(test_data)
-                    output = output[1]
-                    if len(output.shape) == 0:
-                        break
-
-                else:
-                    output = model(test_data)
-
-
-                docs = test_data[7]
-
-                df_diversity = pd.DataFrame(docs.cpu(), index=user_itens)
-
-                div = intra_list_dissimilarity([user_itens], df_diversity, len(user_itens))
-                div = div - (div*0.7)
-
-                # iids, output = test_data[3].cpu(), output.cpu()
-                output = output.cpu()
-                # iids = [x.item() for x in iids]
-                iids = user_itens
-                output = [x.item() for x in output]
-
-
-                item_x_rating = list(zip(iids, output))
-                item_x_rating.sort(key=lambda x: x[1])
-
-                list_wise = [x[0] for x in item_x_rating]
-
-                grownd_truth = [y[1] for y in [x for x in iteractions if user == x[0]]]
-
-                ndcg = ndcg_metric(grownd_truth, list_wise, nranks=4)
-
-                ndcg_values.append(ndcg)
-                diversity_values.append(div)
-
-    # if opt.diversity_metrics:
-    #     ...
-        # Preciso das categorias dos itens
-        # Preciso de listas de recomendação e listas verdadeiras
-        # Calculo métricas de diversidade
-
-    
-    if opt.statistical_test:
-
-        df_error = {
-            "mse":mse_values, 
-            "mae":mae_values,
-            "rmse": rmse_values,
-            "precision": precision_values,
-            "recall": recall_values,
-            "novelty": novelty_values,
-            }
-        
-        df_error = pd.DataFrame(df_error)
-        df_error.to_csv(f"results/{opt.model}_{opt.dataset}_{opt.emb_opt}_results_error.csv", index=False)
-
-        df_rank = {
-            "ndcg":ndcg_values,
-            "diversity": diversity_values, 
-            }
-        
-        df_rank = pd.DataFrame(df_rank)
-        df_rank.to_csv(f"results/{opt.model}_{opt.dataset}_{opt.emb_opt}_results_rank.csv", index=False)
-
-
+    if opt.tuning:
+        print(f"[SEED {seed}] melhor época {best_epoch}: {crit_name} {abs(best_crit):.4f}")
     else:
-        print(f'''MSE mean: {np.array(mse_values).mean():.2f},
-                MAE mean: {np.array(mae_values).mean():.2f}, 
-                RMSE mean: {np.array(rmse_values).mean():.2f}, 
-                NDCG mean: {np.array(ndcg_values).mean():.5f}, 
-                PRECISION mean: {np.array(precision_values).mean():.2f},
-                RECALL mean: {np.array(recall_values).mean():.2f},
-                NOVELTY mean: {np.array(novelty_values).mean():.2f},
-                DIVERSITY mean: {np.array(diversity_values).mean():.2f}'''
-                
-            )
+        print(f"[SEED {seed}] melhor época {best_epoch}: avaliando no catálogo completo")
+        model.load(path)
+        evaluate(model_scorer(model, opt, protocol), opt, protocol, f"{opt.model}_seed{seed}",
+                 {"model": opt.model, "seed": seed, "epoch": best_epoch})
 
-            
-
-    data_len = len(data_loader.dataset)
-    mse = total_loss * 1.0 / data_len
-    mae = total_maeloss * 1.0 / data_len
-    
-    # RETURN TO TRAIN STAGE
-    model.train()
-
-    return total_loss, mse, mae
+    del model, optimizer
+    torch.cuda.empty_cache()
+    gc.collect()
+    return best_crit
 
 
-# @UNPACK INTERACTION FEATURES
-def unpack_input(opt, x):
+def train(**kwargs):
+    opt = load_opt(kwargs)
+    protocol = None
+    if not opt.tuning or model_objective(opt) == "bpr":  # BPR escolhe a época pelo ranking da validação
+        protocol = Protocol(opt.data_root)
+        print(protocol.describe())
+    if not opt.tuning and not os.path.exists(results_path(opt, "Popularity")):
+        evaluate_popularity(opt, protocol)
 
-    uids, iids = list(zip(*x))
-    uids = list(uids)
-    iids = list(iids)
-    
-    user_reviews = opt.users_review_list[uids]
-    user_item2id = opt.user2itemid_list[uids] 
+    # Mesmos dados para todas as seeds; só a inicialização e a ordem dos lotes mudam
+    train_data = ReviewData(opt.data_root, mode="Train")
+    val_data = ReviewData(opt.data_root, mode="Val")
 
-    
-    user_doc = opt.user_doc[uids]
-    
-    item_reviews = opt.items_review_list[iids]
-    item_user2id = opt.item2userid_list[iids] 
-    item_doc = opt.item_doc[iids]
+    seed_min_losses = [train_seed(kwargs, seed, protocol, train_data, val_data) for seed in opt.seeds]
 
-    if opt.topics:
-        user_doc = opt.topic_matrix[uids]
+    print("\nTreinamento de todas as seeds concluído.")
+    if not opt.tuning:
+        summary(dataset=opt.dataset)
 
-        shift = opt.user_num - 2
-        item_doc = opt.topic_matrix[[x + shift for x in iids]] 
-
-    
-    if opt.bert == "finetunning" or opt.bert == "zeroshot":
-        data = [torch.FloatTensor(user_reviews).cuda(), 
-                torch.FloatTensor(item_reviews).cuda(),
-                torch.LongTensor(uids).cuda(), 
-                torch.LongTensor(iids).cuda(), 
-                torch.LongTensor(user_item2id).cuda(),
-                torch.LongTensor(item_user2id).cuda(), 
-                torch.FloatTensor(user_doc).cuda(), 
-                torch.FloatTensor(item_doc).cuda()]
-        
-    else:
-        data = [user_reviews, item_reviews, uids, iids, user_item2id, item_user2id, user_doc, item_doc]
-        data = list(map(lambda x: torch.LongTensor(x).cuda(), data))
-
-
-    return data
+    avg_min_loss = float(np.mean(seed_min_losses))
+    print(f"GRID_SEARCH_METRIC={avg_min_loss:.6f}")
+    return avg_min_loss
 
 
 if __name__ == "__main__":

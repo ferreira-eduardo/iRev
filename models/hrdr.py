@@ -34,6 +34,11 @@ class Net(nn.Module):
             id_num = self.opt.user_num
             ui_id_num = self.opt.item_num
 
+        self.user_features = torch.Tensor(
+            np.load(f"checkpoints/user_features_pmf_{self.opt.dataset}_{self.opt.emb_opt}.npy"))
+        self.item_features = torch.Tensor(
+            np.load(f"checkpoints/item_features_pmf_{self.opt.dataset}_{self.opt.emb_opt}.npy"))
+
         self.id_embedding = nn.Embedding(ui_id_num, opt.id_emb_size)
         # self.rating_matrix = nn.Embedding(opt.user_num, opt.item_num)  # user/item num * 32
         # self.rating_matrix.weight.requires_grad = False
@@ -49,9 +54,11 @@ class Net(nn.Module):
             nn.LayerNorm(self.opt.filters_num)
         )
 
-        self.cnn = nn.Conv2d(1, self.opt.filters_num, (self.opt.kernel_size, self.opt.word_dim))           
+        self.cnn = nn.Conv2d(1, self.opt.filters_num, (self.opt.kernel_size, self.opt.word_dim))
 
-        self.id_linear = nn.Linear(self.opt.filters_num, self.opt.filters_num)
+        feature_dim = self.user_features.shape[1]
+        self.id_linear = nn.Linear(feature_dim, self.opt.filters_num)
+
         self.review_linear = nn.Linear(self.opt.filters_num, self.opt.id_emb_size)
 
         self.dropout = nn.Dropout(self.opt.drop_out)
@@ -60,28 +67,27 @@ class Net(nn.Module):
         self.init_model_weight()
 
     def forward(self, reviews, ids, uori):
-        
+
         id_embs = self.id_embedding(ids)
 
         # --------------- word embedding ----------------------------------
-        
-        reviews = self.word_embs(reviews) 
+
+        reviews = self.word_embs(reviews)
         reviews = self.dropout(reviews)
         bs, r_num, r_len, wd = reviews.size()
         reviews = reviews.view(-1, r_len, wd)
-    
+
         # rating_matrix = torch.from_numpy(np.load(self.opt.ratingMatrix_path))
 
-        user_features = torch.Tensor(np.load(f"checkpoints/user_features_pmf_{self.opt.dataset}_{self.opt.emb_opt}.npy"))
-        item_features = torch.Tensor(np.load(f"checkpoints/item_features_pmf_{self.opt.dataset}_{self.opt.emb_opt}.npy"))
+
 
         if uori == 'user':
             # matrix_vector = rating_matrix[ids.cpu()]
-            matrix_vector = user_features[ids.cpu()]
+            matrix_vector = self.user_features[ids.cpu()]
             matrix_vector = matrix_vector.cuda()
         else:
             # matrix_vector = (rating_matrix[:, ids.cpu()]).t()
-            matrix_vector = item_features[ids.cpu()]
+            matrix_vector = self.item_features[ids.cpu()]
             matrix_vector = matrix_vector.cuda()
 
         # if uori == 'user':
@@ -89,14 +95,14 @@ class Net(nn.Module):
         # else:
         #     matrix_vector = (self.rating_matrix.weight[:, ids]).t()
 
-        Matrix_vector = self.rating_mlp(matrix_vector)
-        
-        review_fea = F.relu(self.cnn(reviews.unsqueeze(1))).squeeze(3) 
+        matrix_vector = matrix_vector.to(reviews.device)  # instead of .cuda()
+        matrix_vector = self.rating_mlp(matrix_vector)
+
+        review_fea = F.relu(self.cnn(reviews.unsqueeze(1))).squeeze(3)
         review_fea = F.max_pool1d(review_fea, review_fea.size(2)).squeeze(2)
-        review_fea = review_fea.view(-1, r_num, review_fea.size(1)) # o = (128, 7, 100)
+        review_fea = review_fea.view(-1, r_num, review_fea.size(1))  # o = (128, 7, 100)
 
-        attention_query = self.id_linear(Matrix_vector) # qr
-
+        attention_query = self.id_linear(matrix_vector)  # qr
 
         att_weight = F.softmax(torch.bmm(review_fea, attention_query.unsqueeze(2)), dim=1)
 
@@ -116,17 +122,15 @@ class Net(nn.Module):
         else:
             nn.init.xavier_normal_(self.word_embs.weight)
 
-        ----------------Matrix init method--------------#
-        ratingMatrix = torch.from_numpy(np.load(self.opt.ratingMatrix_path))
-        self.rating_matrix.weight.data.copy_(ratingMatrix)
-        self.rating_matrix.weight.data.copy_(ratingMatrix.cuda())
-        self.iid_embedding.weight.data.copy_(ratingMatrix.T.cuda())
-
+        # ----------------Matrix         init          method - -------------  #
+        # ratingMatrix = torch.from_numpy(np.load(self.opt.ratingMatrix_path))
+        # self.rating_matrix.weight.data.copy_(ratingMatrix)
+        # self.rating_matrix.weight.data.copy_(ratingMatrix.cuda())
+        # self.iid_embedding.weight.data.copy_(ratingMatrix.T.cuda())
 
     def init_model_weight(self):
         nn.init.xavier_uniform_(self.cnn.weight)
         nn.init.uniform_(self.cnn.bias, a=-0.1, b=0.1)
-
 
         for x in [self.rating_mlp[0],
                   self.rating_mlp[2],
@@ -136,7 +140,6 @@ class Net(nn.Module):
             # nn.init.uniform_(x.weight, -0.1, 0.1)
             nn.init.xavier_normal_(x.weight)
             nn.init.constant_(x.bias, 0.1)
-
 
 
 class CNN(nn.Module):

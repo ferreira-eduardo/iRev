@@ -30,7 +30,7 @@ def clean_str(string):
 
 
 # @FUNCTION TO BUILD VOCABULARY
-def bulid_vocbulary(xDict):
+def build_vocabulary(xDict):
     rawReviews = []
     for (id, text) in xDict.items():
         rawReviews.append(' '.join(text))
@@ -39,7 +39,6 @@ def bulid_vocbulary(xDict):
 
 # @FUNCTION TO BUILD DOCUMENT FROM REVIEWS
 def build_doc(u_reviews_dict, i_reviews_dict):
-
     u_reviews = []
     for ind in range(len(u_reviews_dict)):
         u_reviews.append(' <SEP> '.join(u_reviews_dict[ind]))
@@ -54,7 +53,7 @@ def build_doc(u_reviews_dict, i_reviews_dict):
 
     tf = vectorizer.transform(u_reviews + i_reviews)
 
-    rev = tf.toarray()
+    rev = tf
 
     # --- TOPIC MODELING --- #
     no_topics = 32
@@ -202,3 +201,30 @@ def countNum(xDict):
     pReviewLen = x[int(P_REVIEW * xLen) - 1]
 
     return minNum, maxNum, averageNum, maxSent, minSent, pReviewLen, pSentLen
+
+
+def padding_text(text_list, max_rev_len):
+    """Garante que a lista de reviews tenha um número fixo de sentenças."""
+    if len(text_list) >= max_rev_len:
+        return text_list[:max_rev_len]
+    else:
+        # Preenche com listas vazias (ou zeros, dependendo da sua necessidade de embedding)
+        padding = [[] for _ in range(max_rev_len - len(text_list))]
+        return text_list + padding
+
+def padding_doc(doc_list, max_doc_len=500):
+    """Garante que o documento tenha um tamanho fixo de palavras."""
+    padded_docs = []
+    for doc in doc_list:
+        if len(doc) >= max_doc_len:
+            padded_docs.append(doc[:max_doc_len])
+        else:
+            padded_docs.append(doc + [0] * (max_doc_len - len(doc)))
+    return np.array(padded_docs), max_doc_len
+
+def padding_ids(id_list, max_len, padding_idx):
+    """Garante que a lista de IDs de interação tenha tamanho fixo."""
+    if len(id_list) >= max_len:
+        return id_list[:max_len]
+    else:
+        return id_list + [padding_idx] * (max_len - len(id_list))

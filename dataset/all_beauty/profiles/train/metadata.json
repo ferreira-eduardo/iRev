@@ -1,0 +1,31 @@
+{
+  "dataset": "all_beauty",
+  "stage": "train",
+  "input_file": "/home/eduardo/ghc2f/data/all_beauty/splits/train.parquet",
+  "input_rows": 19222,
+  "reviews_used": 19209,
+  "category": "All Beauty",
+  "model": "Qwen/Qwen3-14B",
+  "decoding": {
+    "max_new_tokens": 300,
+    "do_sample": true,
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "top_k": 20,
+    "enable_thinking": false,
+    "seed": 42,
+    "batch_size": 8,
+    "max_batch_tokens": 24000
+  },
+  "MAX_REVIEWS": 30,
+  "MAX_CHARS": 1000,
+  "user_profiles": {
+    "rows": 8197,
+    "parse_failures": 15
+  },
+  "item_profiles": {
+    "rows": 10515,
+    "parse_failures": 7
+  },
+  "date": "2026-09-29T02:39:11"
+}

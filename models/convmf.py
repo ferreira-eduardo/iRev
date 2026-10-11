@@ -19,6 +19,17 @@ class ConvMF(nn.Module):
         self.opt = opt
         self.num_fea = 1 # DOC
 
+        raw_u_feat = np.load(f"checkpoints/user_features_pmf_{opt.dataset}_{opt.emb_opt}.npy")
+        raw_i_feat = np.load(f"checkpoints/item_features_pmf_{opt.dataset}_{opt.emb_opt}.npy")
+
+        u_feat_padded = np.zeros((opt.user_num, raw_u_feat.shape[1]))
+        i_feat_padded = np.zeros((opt.item_num, raw_i_feat.shape[1]))
+
+        u_limit = min(opt.user_num, raw_u_feat.shape[0])
+        i_limit = min(opt.item_num, raw_i_feat.shape[0])
+        u_feat_padded[:u_limit, :] = raw_u_feat[:u_limit, :]
+        i_feat_padded[:i_limit, :] = raw_i_feat[:i_limit, :]
+
         self.item_word_embs = nn.Embedding(opt.vocab_size, opt.word_dim)  # vocab_size * 300
 
         self.item_cnn = nn.Conv2d(1, opt.filters_num, (opt.kernel_size, opt.word_dim))
@@ -26,8 +37,11 @@ class ConvMF(nn.Module):
         self.item_fc_linear = nn.Linear(opt.filters_num, opt.fc_dim)
         self.dropout = nn.Dropout(self.opt.drop_out)
         
-        self.user_features = torch.Tensor(np.load(f"checkpoints/user_features_pmf_{opt.dataset}_{opt.emb_opt}.npy")).to('cuda')
-        self.item_features = torch.Tensor(np.load(f"checkpoints/item_features_pmf_{opt.dataset}_{opt.emb_opt}.npy")).to('cuda')
+        # self.user_features = torch.Tensor(np.load(f"checkpoints/user_features_pmf_{opt.dataset}_{opt.emb_opt}.npy")).to('cuda')
+        # self.item_features = torch.Tensor(np.load(f"checkpoints/item_features_pmf_{opt.dataset}_{opt.emb_opt}.npy")).to('cuda')
+
+        self.user_features = torch.from_numpy(u_feat_padded).float().to('cuda')
+        self.item_features = torch.from_numpy(i_feat_padded).float().to('cuda')
 
         self.reset_para()   
 
@@ -64,7 +78,3 @@ class ConvMF(nn.Module):
             nn.init.uniform_(self.item_word_embs.weight, -0.1, 0.1)
 
 
-    # def fit_pmf(self, dataset):
-
-    #     self.pmf_model = ProbabilisticMatrixFatorization(dataset)
-    #     self.pmf_model.fit()

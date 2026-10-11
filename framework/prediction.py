@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 
 
 class PredictionLayer(nn.Module):
@@ -19,7 +20,8 @@ class PredictionLayer(nn.Module):
         if opt.output == "fm":
             self.model = FM(opt.feature_dim, opt.user_num, opt.item_num)
         elif opt.output == "lfm":
-            self.model = LFM(opt.feature_dim, opt.user_num, opt.item_num)
+            train_mean = float(np.load(f"{opt.data_root}/train/Train_Score.npy").mean())
+            self.model = LFM(opt.feature_dim, opt.user_num, opt.item_num, train_mean)
         elif opt.output == 'mlp':
             self.model = MLP(opt.feature_dim)
         elif opt.output == 'nfm':
@@ -36,10 +38,10 @@ class PredictionLayer(nn.Module):
 
 class LFM(nn.Module):
     '''
-        LATEND FACTOR MODEL
+        LATENT FACTOR MODEL
     '''
 
-    def __init__(self, dim, user_num, item_num):
+    def __init__(self, dim, user_num, item_num, train_mean=0.0):
         super(LFM, self).__init__()
 
         # ---------------------------fc_linear------------------------------
@@ -47,6 +49,7 @@ class LFM(nn.Module):
         # -------------------------LFM-user/item-bias-----------------------
         self.b_users = nn.Parameter(torch.randn(user_num, 1))
         self.b_items = nn.Parameter(torch.randn(item_num, 1))
+        self.global_bias = nn.Parameter(torch.tensor(train_mean, dtype=torch.float32))
 
         self.init_weight()
 
@@ -55,13 +58,20 @@ class LFM(nn.Module):
         nn.init.uniform_(self.fc.bias, a=0.5, b=1.5)
         nn.init.uniform_(self.b_users, a=0.5, b=1.5)
         nn.init.uniform_(self.b_items, a=0.5, b=1.5)
+        # Start at the train mean instead of the ~3 the uniform draws above add up to: on
+        # IMDB (1-10, mean 7.4) the small learning rates could not close that gap in time.
+        # The draws stay (then zeroed) so the RNG stream, and with it batch order, is unchanged.
+        with torch.no_grad():
+            self.fc.bias.zero_()
+            self.b_users.zero_()
+            self.b_items.zero_()
 
     def rescale_sigmoid(self, score, a, b):
         return a + torch.sigmoid(score) * (b - a)
 
     def forward(self, feature, user_id, item_id):
         # return self.rescale_sigmoid(self.fc(feature), 1.0, 5.0) + self.b_users[user_id] + self.b_items[item_id]
-        return self.fc(feature) + self.b_users[user_id] + self.b_items[item_id]
+        return self.fc(feature) + self.b_users[user_id] + self.b_items[item_id] + self.global_bias
 
 
 class NFM(nn.Module):

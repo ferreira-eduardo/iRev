@@ -1,0 +1,49 @@
+{
+  "dataset": "all_beauty",
+  "input_file": "/home/eduardo/dataset/all_beauty.parquet",
+  "columns_used": {
+    "user": "userId",
+    "item": "itemId",
+    "review": "text",
+    "time": "timestamp"
+  },
+  "min_inter": 3,
+  "raw": {
+    "interactions": 35624,
+    "users": 8201
+  },
+  "duplicate_user_item_time_rows_dropped": 0,
+  "users_removed_by_min_inter": 0,
+  "interactions_removed_by_min_inter": 0,
+  "splits": {
+    "train": {
+      "users": 8201,
+      "items": 10522,
+      "interactions": 19222
+    },
+    "val": {
+      "users": 8201,
+      "items": 6485,
+      "interactions": 8201
+    },
+    "test": {
+      "users": 8201,
+      "items": 6595,
+      "interactions": 8201
+    },
+    "trainval": {
+      "users": 8201,
+      "items": 14761,
+      "interactions": 27423
+    }
+  },
+  "all": {
+    "users": 8201,
+    "items": 18866,
+    "interactions": 35624
+  },
+  "frac_val_items_unseen_in_train": 0.5598097792952079,
+  "frac_test_items_unseen_in_trainval": 0.5318863553225216,
+  "frac_test_user_item_pairs_in_trainval": 0.005974881112059505,
+  "frac_interactions_with_time_tie_within_user": 0.0
+}
