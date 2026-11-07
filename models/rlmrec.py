@@ -20,7 +20,7 @@ Profiles: preprocess_data/generate_rlmrec_profiles.py (local Qwen3-14B instead o
 gpt-3.5-turbo, train reviews only) + build_rlmrec_fixed_split.py (e5-base-v2 instead of
 text-embedding-ada-002).
 
-iRev integration (as LightGCN): objective "bpr" (main.py trains with bpr_loss on
+iRev integration (as LightGCN): objective "bpr" (main.py trains  with bpr_loss on
 (user, pos, sampled neg) and selects the epoch by validation nDCG@10, Adam without
 weight_decay); user_side/item_side/score_matrix give factorized_scorer the full ranking.
 """

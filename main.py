@@ -36,7 +36,7 @@ from utils.utils import *
 
 RESULTS_DIR = "results/new_protocol"
 CHECKPOINT_DIR = "checkpoints/seeds"
-REPORTED = ("ndcg@10", "recall@10", "coverage@10", "aplt@10", "novelty@10")
+REPORTED = ("ndcg@10", "recall@10", "mrr", "coverage@10", "aplt@10", "novelty@10")
 
 
 def device_arrays(opt):
@@ -114,8 +114,19 @@ def set_seed(seed):
 def load_opt(kwargs):
     if 'dataset' not in kwargs:
         raise Exception("Dataset not provided.")
+    kwargs = dict(kwargs)
+    # Opcionais para rodar outro conjunto de dados/fold (ex.: LOOCV em dataset/<name>_loocv_data);
+    # sem eles, o split fixo de sempre: fold_0 do setting_path do config.
+    setting_path = kwargs.pop('setting_path', None)
+    fold_idx = kwargs.pop('fold_idx', 0)
+    results_dir = kwargs.pop('results_dir', None)
+    checkpoint_dir = kwargs.pop('checkpoint_dir', CHECKPOINT_DIR)
     opt = getattr(config, kwargs['dataset'] + '_Config')()
-    opt.parse(dict(kwargs, fold_idx=0))  # split fixo: sempre a fold_0 do dataset
+    if setting_path:
+        opt.setting_path = setting_path
+    opt.parse(dict(kwargs, fold_idx=fold_idx))
+    opt.results_dir = results_dir or f"{RESULTS_DIR}/{opt.dataset}"
+    opt.checkpoint_dir = checkpoint_dir
     if not isinstance(opt.seeds, (list, tuple)):
         opt.seeds = [opt.seeds]
     return opt
@@ -129,11 +140,11 @@ def build_model(opt):
 
 
 def checkpoint_path(opt, seed):
-    return f"{CHECKPOINT_DIR}/{opt.model}_{opt.dataset}_seed{seed}_{opt.emb_opt}.pth"
+    return f"{opt.checkpoint_dir}/{opt.model}_{opt.dataset}_seed{seed}_{opt.emb_opt}.pth"
 
 
 def results_path(opt, name):
-    return f"{RESULTS_DIR}/{opt.dataset}/{name}.csv"
+    return f"{opt.results_dir}/{name}.csv"
 
 
 # @PREDICT: REGRESSÃO (MSE)
@@ -251,13 +262,29 @@ def model_scorer(model, opt, protocol):
     return slow
 
 
-def evaluate(score_fn, opt, protocol, name, info):
-    """Relatório completo na validação e no teste, salvo em results/new_protocol/<dataset>/<name>.csv."""
+def rating_errors(model, opt):
+    """MSE/RMSE do checkpoint em todos os pares de validação e teste, na escala do alvo de treino
+    (*_Score.npy: nota crua no split fixo, z-score por usuário nas folds LOOCV)."""
+    errors = {}
+    for split, mode in (("val", "Val"), ("test", "Test")):
+        loader = DataLoader(ReviewData(opt.data_root, mode=mode), batch_size=opt.batch_size,
+                            shuffle=False, collate_fn=collate_fn)
+        mse = regression_mse(model, loader, opt)
+        errors[split] = {"mse": mse, "rmse": mse ** 0.5}
+    return errors
+
+
+def evaluate(score_fn, opt, protocol, name, info, model=None):
+    """Relatório completo na validação e no teste, salvo em results/new_protocol/<dataset>/<name>.csv.
+    Com model (modelos de nota), acrescenta MSE/RMSE de validação e teste."""
     with eval_rng(info["seed"]):
         reports = {split: protocol.report(score_fn, split, opt.eval_users) for split in ("val", "test")}
+        if model is not None and model_objective(opt) == "mse":
+            for split, errors in rating_errors(model, opt).items():
+                reports[split].update(errors)
     save_report(results_path(opt, name), {"dataset": opt.dataset, **info}, reports)
     for split, metrics in reports.items():
-        print(f"  {split}: " + " | ".join(f"{k}={metrics[k]:.4f}" for k in REPORTED))
+        print(f"  {split}: " + " | ".join(f"{k}={metrics[k]:.4f}" for k in REPORTED + ("mse", "rmse") if k in metrics))
     return reports
 
 
@@ -292,18 +319,18 @@ def test(**kwargs):
         model = build_model(opt)
         model.load(path)
         evaluate(model_scorer(model, opt, protocol), opt, protocol, name,
-                 {"model": opt.model, "seed": seed, "epoch": epoch})
+                 {"model": opt.model, "seed": seed, "epoch": epoch}, model=model)
 
         del model
         torch.cuda.empty_cache()
         gc.collect()
 
-    summary(dataset=opt.dataset)
+    summary(dataset=opt.dataset, results_dir=opt.results_dir)
 
 
-def summary(dataset, split="test"):
+def summary(dataset, split="test", results_dir=None):
     """Média ± desvio entre seeds por modelo (results/new_protocol/<dataset>/summary.csv)."""
-    table = summarize(f"{RESULTS_DIR}/{dataset}", split)
+    table = summarize(results_dir or f"{RESULTS_DIR}/{dataset}", split)
     cols = ["seeds"] + [f"{m}_{s}" for m in REPORTED for s in ("mean", "std") if f"{m}_{s}" in table]
     print(f"\n[{split}] média e desvio entre seeds:\n{table[cols].round(4).to_string()}")
 
@@ -409,7 +436,9 @@ def train_seed(kwargs, seed, protocol, train_data, val_data):
             val_mse = regression_mse(model, val_loader, opt)
             crit = val_mse
             log += f" | Val MSE: {val_mse:.4f}"
-        if rank_epoch and (bpr or not opt.tuning):
+        # MSE models are selected by Val MSE, so the full-catalog ranking only runs once,
+        # in evaluate() on the best checkpoint after training
+        if bpr and rank_epoch:
             with eval_rng(seed):
                 val = protocol.accuracy(model_scorer(model, opt, protocol), "val", opt.eval_users)
             if bpr:
@@ -437,7 +466,7 @@ def train_seed(kwargs, seed, protocol, train_data, val_data):
         print(f"[SEED {seed}] melhor época {best_epoch}: avaliando no catálogo completo")
         model.load(path)
         evaluate(model_scorer(model, opt, protocol), opt, protocol, f"{opt.model}_seed{seed}",
-                 {"model": opt.model, "seed": seed, "epoch": best_epoch})
+                 {"model": opt.model, "seed": seed, "epoch": best_epoch}, model=model)
 
     del model, optimizer
     torch.cuda.empty_cache()
@@ -462,7 +491,7 @@ def train(**kwargs):
 
     print("\nTreinamento de todas as seeds concluído.")
     if not opt.tuning:
-        summary(dataset=opt.dataset)
+        summary(dataset=opt.dataset, results_dir=opt.results_dir)
 
     avg_min_loss = float(np.mean(seed_min_losses))
     print(f"GRID_SEARCH_METRIC={avg_min_loss:.6f}")

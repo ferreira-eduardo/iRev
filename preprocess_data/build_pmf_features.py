@@ -40,13 +40,14 @@ SETTING_PATHS = {
 
 
 def build_pmf_features(dataset_config_name, emb_opt="default", n_factors=32,
-                        n_epochs=30, lr_all=0.005, reg_all=0.02, seed=42, out_emb_opt=None):
+                        n_epochs=30, lr_all=0.005, reg_all=0.02, seed=42, out_emb_opt=None,
+                        setting_path=None, fold=0):
     """out_emb_opt: filename suffix to save under, if different from emb_opt
     (used to keep several n_factors variants of the same dataset alongside
     each other -- see grid_search.py's PMF_DIM_PARAM)."""
     out_emb_opt = out_emb_opt or emb_opt
-    setting_path = SETTING_PATHS[dataset_config_name]
-    train_dir = os.path.join(REPO_ROOT, "dataset", setting_path, "fold_0", "train")
+    setting_path = setting_path or SETTING_PATHS[dataset_config_name]
+    train_dir = os.path.join(REPO_ROOT, "dataset", setting_path, f"fold_{fold}", "train")
 
     x = np.load(os.path.join(train_dir, "Train.npy"))
     y = np.load(os.path.join(train_dir, "Train_Score.npy"))
@@ -90,10 +91,15 @@ if __name__ == "__main__":
                               "id_emb_size/fc_dim search grids need a matching PMF file per "
                               "distinct value (see grid_search.py's PMF_DIM_PARAM), saved as "
                               "emb_opt=<emb_opt>_pmf<n_factors>.")
+    parser.add_argument("--setting_path", default=None,
+                        help="dataset dir to read instead of the config one (e.g. imdb_loocv_data); "
+                             "use with a single --datasets entry")
+    parser.add_argument("--fold", type=int, default=0, help="fold whose train split the PMF is fit on")
     args = parser.parse_args()
 
     for name in args.datasets.split(","):
         for n_factors in [int(x) for x in args.n_factors_list.split(",")]:
             print(f"\n{'=' * 40}\n{name} (n_factors={n_factors})\n{'=' * 40}")
             out_emb_opt = args.emb_opt if n_factors == 32 else f"{args.emb_opt}_pmf{n_factors}"
-            build_pmf_features(name, emb_opt=args.emb_opt, n_factors=n_factors, out_emb_opt=out_emb_opt)
+            build_pmf_features(name, emb_opt=args.emb_opt, n_factors=n_factors, out_emb_opt=out_emb_opt,
+                               setting_path=args.setting_path, fold=args.fold)

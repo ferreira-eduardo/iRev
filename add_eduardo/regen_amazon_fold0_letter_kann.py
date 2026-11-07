@@ -244,12 +244,16 @@ if __name__ == "__main__":
     parser.add_argument("--fold", type=int, default=0)
     parser.add_argument("--force", action="store_true",
                          help="rebuild even if the target artifact already exists")
+    parser.add_argument("--skip_rating_matrix", action="store_true",
+                         help="only build the KANN files (the dense Rating_Matrix.npy is ~8GB per Amazon LOOCV fold "
+                              "and LETTER reads Rating_Matrix_sparse.npz when present)")
     args = parser.parse_args()
 
     FOLD_DIR = f"dataset/{args.dataset_dir}/fold_{args.fold}"
     TRAIN_DIR = f"{FOLD_DIR}/train"
 
     stats = load_stats()
-    build_rating_matrix(stats, force=args.force)
+    if not args.skip_rating_matrix:
+        build_rating_matrix(stats, force=args.force)
     build_kann_artifacts(stats, force=args.force)
     print("Done.")

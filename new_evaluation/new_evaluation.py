@@ -54,11 +54,20 @@ class Rankings:
     ranks: np.ndarray    # (n,) posição do alvo; 0 = primeiro lugar
     top: np.ndarray      # (n, max(KS)) índices do catálogo no topo de cada lista
     targets: np.ndarray  # (n,) índice do alvo no catálogo
+    ratings: np.ndarray  # (n,) nota original do alvo (relevância graduada do nDCG)
+    liked: np.ndarray    # (n,) alvo positivo (nota >= limiar do usuário)
+
+    def subset(self, mask: np.ndarray) -> "Rankings":
+        return Rankings(self.ranks[mask], self.top[mask], self.targets[mask],
+                        self.ratings[mask], self.liked[mask])
 
 
 def evaluation_rows(split: pd.DataFrame, catalog: dict, history: dict) -> pd.DataFrame:
-    """Interações avaliáveis: positivas, item conhecido no treino e não repetido do histórico."""
-    rows = split[split["liked"] & split["item"].isin(catalog)]
+    """Interações avaliáveis: qualquer nota, item conhecido no treino e não repetido do histórico.
+
+    Todas entram no nDCG (relevância = nota); recall, MRR e além da acurácia usam só as positivas.
+    """
+    rows = split[split["item"].isin(catalog)]
     fresh = [t not in history.get(u, ()) for u, t in zip(rows["user"], rows["item"])]
     return rows[fresh]
 
@@ -90,16 +99,33 @@ def rank_all(score_fn: Callable[[list], torch.Tensor], rows: pd.DataFrame, catal
         tops.append(scores.topk(max(KS), dim=1).indices.cpu())
         targets.append(target.cpu())
 
-    return Rankings(torch.cat(ranks).numpy(), torch.cat(tops).numpy(), torch.cat(targets).numpy())
+    return Rankings(torch.cat(ranks).numpy(), torch.cat(tops).numpy(), torch.cat(targets).numpy(),
+                    rows["rating"].to_numpy(dtype=float), rows["liked"].to_numpy(dtype=bool))
 
 
 # ---------- Métricas ----------
 
-def accuracy(ranks: np.ndarray, ks: tuple[int, ...] = KS) -> dict[str, float]:
+def graded_dcg(r: Rankings, top_rating: int, k: int) -> np.ndarray:
+    """nDCG@k graduado por linha: relevância = nota / nota máxima da escala.
+
+    Cada usuário tem um único alvo, então o DCG ideal é o de um item com a nota máxima
+    no primeiro lugar (= 1). Assim um alvo nota 5 no topo vale 1 e um nota 1 vale 0.2
+    (escala 1-5); com o IDCG do próprio alvo a nota se cancelaria e o nDCG voltaria a ser binário.
+    """
+    gain = r.ratings / top_rating
+    return np.where(r.ranks < k, gain / np.log2(r.ranks + 2), 0)
+
+
+def accuracy(r: Rankings, top_rating: int, ks: tuple[int, ...] = KS) -> dict[str, float]:
+    """nDCG graduado sobre todas as interações; recall e MRR sobre as positivas."""
+    liked = r.ranks[r.liked]
     metrics = {}
     for k in ks:
-        metrics[f"ndcg@{k}"] = float(np.where(ranks < k, 1 / np.log2(ranks + 2), 0).mean())
-        metrics[f"recall@{k}"] = float((ranks < k).mean())
+        metrics[f"ndcg@{k}"] = float(graded_dcg(r, top_rating, k).mean())
+        metrics[f"recall@{k}"] = float((liked < k).mean())
+    metrics["mrr"] = float((1 / (liked + 1)).mean())  # ranks are 0-based
+    metrics["n_users"] = int(len(liked))              # positive (user, held-out item) rows
+    metrics["n_ndcg"] = int(len(r.ranks))             # all rows used by the graded nDCG
     return metrics
 
 
@@ -135,17 +161,17 @@ def beyond_accuracy(r: Rankings, popularity: np.ndarray, n_users: int, k: int = 
     }
 
 
-def stratified(r: Rankings, groups: np.ndarray, k: int = 10) -> dict[str, float]:
-    """nDCG@k por grupo de usuários (ou de alvos)."""
-    gains = np.where(r.ranks < k, 1 / np.log2(r.ranks + 2), 0)
+def stratified(r: Rankings, groups: np.ndarray, top_rating: int, k: int = 10) -> dict[str, float]:
+    """nDCG@k graduado por grupo de usuários (ou de alvos)."""
+    gains = graded_dcg(r, top_rating, k)
     return {f"ndcg@{k}[{g}]": float(gains[groups == g].mean()) for g in np.unique(groups)}
 
 
 def full_report(r: Rankings, popularity: np.ndarray, n_users: int,
-                activity: np.ndarray) -> dict[str, float]:
+                activity: np.ndarray, top_rating: int) -> dict[str, float]:
     target_group = np.where(head_items(popularity)[r.targets], "alvo cabeça", "alvo cauda")
-    return {**accuracy(r.ranks), **beyond_accuracy(r, popularity, n_users),
-            **stratified(r, activity), **stratified(r, target_group)}
+    return {**accuracy(r, top_rating), **beyond_accuracy(r.subset(r.liked), popularity, n_users),
+            **stratified(r, activity, top_rating), **stratified(r, target_group, top_rating)}
 
 
 def activity_groups(rows: pd.DataFrame, user_count: dict) -> np.ndarray:
@@ -193,13 +219,16 @@ def read_split(data_root: str, split: str) -> pd.DataFrame:
 class Protocol:
     """Tudo o que a avaliação precisa, calculado só com o treino (e treino + validação no teste).
 
-    - positivo: nota >= limiar do usuário (user_thresholds sobre o treino);
+    - positivo: nota >= limiar do usuário (user_thresholds sobre o treino), usado em recall,
+      MRR e além da acurácia;
+    - nDCG: toda interação retida é relevante, com ganho = nota / nota máxima;
     - catálogo: itens do treino; o alvo precisa estar nele e não ser repetido do histórico;
     - histórico excluído do ranking: treino na validação, treino + validação no teste.
     """
 
     def __init__(self, data_root: str):
         train, val, test = (read_split(data_root, s) for s in ("train", "val", "test"))
+        self.top_rating = rating_levels(train)
         thresholds, fallback = user_thresholds(train)
         train, val, test = (mark_liked(df, thresholds, fallback) for df in (train, val, test))
 
@@ -219,7 +248,8 @@ class Protocol:
 
     def describe(self) -> str:
         # os splits salvos já não têm itens fora do treino (remap_ids os descarta)
-        return " | ".join(f"{s}: {len(r)} avaliáveis de {self.sizes[s]} com item do catálogo"
+        return " | ".join(f"{s}: {len(r)} avaliáveis ({int(r['liked'].sum())} positivas) "
+                          f"de {self.sizes[s]} com item do catálogo"
                           for s, r in self.rows.items()) + f" | catálogo: {len(self.items)} itens"
 
     def rank(self, score_fn: Callable[[list], torch.Tensor], split: str, chunk: int) -> Rankings:
@@ -227,13 +257,13 @@ class Protocol:
 
     def accuracy(self, score_fn: Callable[[list], torch.Tensor], split: str, chunk: int) -> dict[str, float]:
         """Só as métricas de acurácia (seleção da época)."""
-        return accuracy(self.rank(score_fn, split, chunk).ranks)
+        return accuracy(self.rank(score_fn, split, chunk), self.top_rating)
 
     def report(self, score_fn: Callable[[list], torch.Tensor], split: str, chunk: int) -> dict[str, float]:
         """Relatório completo: acurácia, além da acurácia e estratificado."""
         rankings = self.rank(score_fn, split, chunk)
         activity = activity_groups(self.rows[split], self.user_count)
-        return full_report(rankings, self.popularity, self.n_users, activity)
+        return full_report(rankings, self.popularity, self.n_users, activity, self.top_rating)
 
     def popularity_scorer(self) -> Callable[[list], torch.Tensor]:
         """Referência: todos os usuários recebem a popularidade do item no treino."""

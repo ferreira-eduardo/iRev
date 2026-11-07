@@ -43,7 +43,12 @@ def main():
     parser.add_argument("--patience", type=int, default=None, help="default: the value used in the search")
     parser.add_argument("--python_bin", default=sys.executable)
     parser.add_argument("--search_results_dir", default="results/optuna")
-    args = parser.parse_args()
+    parser.add_argument("--emb_opt", default=None,
+                        help="base emb_opt (default: the one the search used); ConvMF/TARMF load the PMF "
+                             "checkpoint <emb_opt>_pmf<n>, so per-fold PMF files need a per-fold base")
+    # unknown --key=value args go to main.py train as-is, e.g. --setting_path=imdb_loocv_data
+    # --fold_idx=2 --results_dir=... --checkpoint_dir=...
+    args, extra_args = parser.parse_known_args()
 
     best = load_best(args.search_results_dir, args.dataset, args.model, args.sampler)
     best_params = best["best_params"]
@@ -56,10 +61,11 @@ def main():
            f"--seeds={args.seeds}", f"--num_epochs={num_epochs}", f"--patience={patience}",
            # emb_opt picks the PMF checkpoint (ConvMF/TARMF) and is part of the model
            # checkpoint filename, so it must match what the trial used
-           f"--emb_opt={emb_opt_for_trial(args.model, best_params, best['emb_opt'])}"]
+           f"--emb_opt={emb_opt_for_trial(args.model, best_params, args.emb_opt or best['emb_opt'])}"]
     cmd += [f"--{k}={v}" for k, v in FIXED_ARGS.get(args.model, {}).items()]
     cmd += [f"--{k}={best_params[src]}" for k, src in DERIVED_ARGS.get(args.model, {}).items()]
     cmd += [f"--{k}={v}" for k, v in best_params.items()]
+    cmd += extra_args
 
     print(f"[finalize] running: {' '.join(cmd)}")
     proc = subprocess.run(cmd)

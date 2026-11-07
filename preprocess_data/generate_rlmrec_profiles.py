@@ -37,8 +37,55 @@ MAX_REVIEWS = 10
 REVIEW_CHARS = 500
 CHUNK = 5000
 
-ITEM_NOUN = {"all_beauty": "beauty product", "imdb": "movie",
+ITEM_NOUN = {"all_beauty": "beauty product", "imdb": "movie", "tripadvisor": "hotel",
              "musical_instruments": "musical instrument or audio product"}
+
+# ITEM_SYSTEM = """You will serve as an assistant to help me summarize which types of users would enjoy a specific {noun}.
+# I will provide you with some feedback of users for it.
+# Here are the instructions:
+# 1. Feedback from users will be managed in the following List format:
+# [
+#     "the first feedback",
+#     "the second feedback",
+#     "the third feedback",
+#     ....
+# ]
+#
+# 2. The information I will give you:
+# USER FEEDBACK: a List object containing some feedback from users about the {noun}.
+#
+# Requirements:
+# 1. Please provide your answer in JSON format, following this structure:
+# {{
+#     "summarization": "A summarization of what types of users would enjoy this {noun}" (if you are unable to summarize it, please set this value to "None")
+#     "reasoning": "briefly explain your reasoning for the summarization"
+# }}
+# 2. Please ensure that the "summarization" is no longer than 200 words.
+# 3. Please ensure that the "reasoning" is no longer than 200 words.
+# 4. Do not provide any other text outside the JSON string."""
+#
+# USER_SYSTEM = """You will serve as an assistant to help me determine which types of {noun}s a specific user is likely to enjoy.
+# I will provide you with information about {noun}s that the user has purchased, as well as his or her reviews of those {noun}s.
+# Here are the instructions:
+# 1. Each purchased {noun} will be described in JSON format, with the following attributes:
+# {{
+#     "title": "the title of the {noun}", (if there is no title, I will set this value to "None")
+#     "description": "a description of what types of users will like this {noun}",
+#     "review": "the user's review on the {noun}" (if there is no review, I will set this value to "None")
+# }}
+#
+# 2. The information I will give you:
+# PURCHASED ITEMS: a list of JSON strings describing the items that the user has purchased.
+#
+# Requirements:
+# 1. Please provide your decision in JSON format, following this structure:
+# {{
+#     "summarization": "A summarization of what types of {noun}s this user is likely to enjoy" (if you are unable to summarize it, please set this value to "None")
+#     "reasoning": "briefly explain your reasoning for the summarization"
+# }}
+# 2. Please ensure that the "summarization" is no longer than 100 words.
+# 3. Please ensure that the "reasoning" is no longer than 200 words.
+# 4. Do not provided any other text outside the JSON string."""
 
 ITEM_SYSTEM = """You will serve as an assistant to help me summarize which types of users would enjoy a specific {noun}.
 I will provide you with some feedback of users for it.
@@ -57,7 +104,7 @@ USER FEEDBACK: a List object containing some feedback from users about the {noun
 Requirements:
 1. Please provide your answer in JSON format, following this structure:
 {{
-    "summarization": "A summarization of what types of users would enjoy this {noun}" (if you are unable to summarize it, please set this value to "None")
+    "summarization": "A summarization of what types of users would enjoy this {noun}" (if you are unable to summarize it, please set this value to "None"),
     "reasoning": "briefly explain your reasoning for the summarization"
 }}
 2. Please ensure that the "summarization" is no longer than 200 words.
@@ -80,13 +127,19 @@ PURCHASED ITEMS: a list of JSON strings describing the items that the user has p
 Requirements:
 1. Please provide your decision in JSON format, following this structure:
 {{
-    "summarization": "A summarization of what types of {noun}s this user is likely to enjoy" (if you are unable to summarize it, please set this value to "None")
+    "summarization": "A summarization of what types of {noun}s this user is likely to enjoy" (if you are unable to summarize it, please set this value to "None"),
     "reasoning": "briefly explain your reasoning for the summarization"
 }}
 2. Please ensure that the "summarization" is no longer than 100 words.
 3. Please ensure that the "reasoning" is no longer than 200 words.
-4. Do not provided any other text outside the JSON string."""
+4. Do not provide any other text outside the JSON string."""
 
+# Second pass for the profiles answered "None" (mostly items with a single short or negative
+# review): the same prompt, with the "None" escape replaced by a best-effort instruction.
+NONE_CLAUSE = '(if you are unable to summarize it, please set this value to "None")'
+BEST_EFFORT = ('(the information may be brief or negative: still give your best-effort '
+               'summarization of what it reveals; never answer "None")')
+assert NONE_CLAUSE in ITEM_SYSTEM and NONE_CLAUSE in USER_SYSTEM
 
 def clip(text):
     text = " ".join(str(text).split())
