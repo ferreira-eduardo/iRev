@@ -1,23 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-LightGCN adapted to iRev from the reference PyTorch implementation by Jianbai Ye
-(gusye@mail.ustc.edu.cn) of:
-    Xiangnan He et al. LightGCN: Simplifying and Powering Graph Convolution Network
-    for Recommendation. SIGIR 2020.
-
-Kept as published: normalized user-item graph D^-1/2 A D^-1/2 built from the train
-interactions, K propagation layers without weights/nonlinearities, layer-mean
-readout, N(0, 0.1) init, and BPR loss + decay * L2 on the layer-0 (ego) embeddings,
-optimized with plain Adam (main.py drops Adam's weight_decay for BPR models).
-
-iRev integration:
-    - objective = "bpr": main.py trains it with bpr_loss on (user, pos, sampled neg)
-      triples instead of the rating MSE, and selects the epoch by validation nDCG@10.
-    - forward() returns (score, score) for opt.direct_output, like LETTER.
-    - user_side/item_side/score_matrix let main.py's factorized_scorer rank the
-      full catalog with one matmul.
-The graph's dropout option (off by default in the paper's experiments) is not ported.
-"""
 
 import os
 
