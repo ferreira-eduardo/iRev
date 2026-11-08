@@ -1,0 +1,18 @@
+{
+  "study_name": "Amazon_data_KANN_tpe_cc284612",
+  "storage": "sqlite:///optuna_studies/Amazon_data/KANN.db",
+  "best_value": 1.841843,
+  "best_params": {
+    "kann_d_model": 50,
+    "kann_dff": 2048,
+    "kann_num_heads": 4,
+    "kann_num_layers": 1,
+    "drop_out": 0.5,
+    "batch_size": 64
+  },
+  "emb_opt": "default",
+  "num_epochs": 30,
+  "patience": 5,
+  "seeds": "[23]",
+  "note": "exported from the .db after the fact; study predates settings hashing, so num_epochs/patience/seeds are grid_search.py defaults (assumed)"
+}

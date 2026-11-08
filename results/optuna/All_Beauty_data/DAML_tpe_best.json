@@ -1,0 +1,19 @@
+{
+  "study_name": "All_Beauty_data_DAML_tpe_dc356215",
+  "storage": "sqlite:///optuna_studies/All_Beauty_data/DAML.db",
+  "best_value": 1.27865,
+  "best_params": {
+    "weight_decay": 0.001,
+    "lr": 5e-05,
+    "id_emb_size": 32,
+    "kernel_size": 3,
+    "filters_num": 100,
+    "word_dim": 300
+  },
+  "emb_opt": "default",
+  "num_epochs": 30,
+  "patience": 5,
+  "seeds": "[23]",
+  "data": "c30487e5",
+  "head": "5366f7bb"
+}

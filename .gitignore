@@ -182,3 +182,8 @@ optuna_studies/**/*.db
 
 # results/ is versioned, CSVs included (overrides the global *.csv rule above)
 !results/**/*.csv
+
+# Model weights (GitHub rejects files >100MB)
+*.pth
+*.pt
+*.ckpt

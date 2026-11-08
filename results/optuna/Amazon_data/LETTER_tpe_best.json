@@ -1,0 +1,17 @@
+{
+  "study_name": "Amazon_data_LETTER_tpe_3e7780fe",
+  "storage": "sqlite:///optuna_studies/Amazon_data/LETTER.db",
+  "best_value": 2.321781,
+  "best_params": {
+    "letter_hidden_dim": 128,
+    "drop_out": 0.1,
+    "letter_edge_ratio": 5,
+    "lr": 0.001,
+    "batch_size": 128
+  },
+  "emb_opt": "default",
+  "num_epochs": 30,
+  "patience": 5,
+  "seeds": "[23]",
+  "note": "exported from the .db after the fact; study predates settings hashing, so num_epochs/patience/seeds are grid_search.py defaults (assumed)"
+}

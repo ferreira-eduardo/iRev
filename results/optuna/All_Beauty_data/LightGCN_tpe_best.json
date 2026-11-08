@@ -1,0 +1,15 @@
+{
+  "study_name": "All_Beauty_data_LightGCN_tpe_7b8dceb4",
+  "storage": "sqlite:///optuna_studies/All_Beauty_data/LightGCN.db",
+  "best_value": -0.028583,
+  "best_params": {
+    "lgcn_layers": 4,
+    "lgcn_decay": 0.01,
+    "lr": 0.005,
+    "batch_size": 2048
+  },
+  "emb_opt": "default",
+  "num_epochs": 1000,
+  "patience": 5,
+  "seeds": "[23]"
+}

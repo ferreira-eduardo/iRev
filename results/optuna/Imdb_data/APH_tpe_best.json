@@ -1,0 +1,18 @@
+{
+  "study_name": "Imdb_data_APH_tpe_293035b0",
+  "storage": "sqlite:///optuna_studies/Imdb_data/APH.db",
+  "best_value": 5.365243,
+  "best_params": {
+    "aph_dim": 8,
+    "lr": 0.005,
+    "weight_decay": 0.01,
+    "batch_size": 128
+  },
+  "emb_opt": "default",
+  "num_epochs": 30,
+  "patience": 5,
+  "seeds": "[23]",
+  "data": "a1b1c65f",
+  "aph_exclude_target": true,
+  "bias_no_decay": true
+}

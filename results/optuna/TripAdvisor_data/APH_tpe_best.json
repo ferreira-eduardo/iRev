@@ -1,0 +1,18 @@
+{
+  "study_name": "TripAdvisor_data_APH_tpe_63f43629",
+  "storage": "sqlite:///optuna_studies/TripAdvisor_data/APH.db",
+  "best_value": 0.834135,
+  "best_params": {
+    "aph_dim": 8,
+    "lr": 0.005,
+    "weight_decay": 0.05,
+    "batch_size": 128
+  },
+  "emb_opt": "default",
+  "num_epochs": 30,
+  "patience": 5,
+  "seeds": "[23]",
+  "data": "bc341c83",
+  "aph_exclude_target": true,
+  "bias_no_decay": true
+}

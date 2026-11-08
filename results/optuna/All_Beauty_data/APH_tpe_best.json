@@ -1,0 +1,18 @@
+{
+  "study_name": "All_Beauty_data_APH_tpe_da8e2043",
+  "storage": "sqlite:///optuna_studies/All_Beauty_data/APH.db",
+  "best_value": 1.248204,
+  "best_params": {
+    "aph_dim": 64,
+    "lr": 0.005,
+    "weight_decay": 0.01,
+    "batch_size": 256
+  },
+  "emb_opt": "default",
+  "num_epochs": 30,
+  "patience": 5,
+  "seeds": "[23]",
+  "data": "39d2b33b",
+  "aph_exclude_target": true,
+  "bias_no_decay": true
+}

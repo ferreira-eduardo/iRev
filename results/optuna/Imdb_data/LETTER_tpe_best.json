@@ -1,0 +1,17 @@
+{
+  "study_name": "Imdb_data_LETTER_tpe_f6a500a0",
+  "storage": "sqlite:///optuna_studies/Imdb_data/LETTER.db",
+  "best_value": 6.573634,
+  "best_params": {
+    "letter_hidden_dim": 32,
+    "drop_out": 0.3,
+    "letter_edge_ratio": 20,
+    "lr": 0.001,
+    "batch_size": 128
+  },
+  "emb_opt": "default",
+  "num_epochs": 30,
+  "patience": 5,
+  "seeds": "[23]",
+  "data": "4e118c65"
+}

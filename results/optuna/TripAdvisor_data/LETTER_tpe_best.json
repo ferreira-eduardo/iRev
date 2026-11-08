@@ -1,0 +1,17 @@
+{
+  "study_name": "TripAdvisor_data_LETTER_tpe_2daa68a4",
+  "storage": "sqlite:///optuna_studies/TripAdvisor_data/LETTER.db",
+  "best_value": 1.194592,
+  "best_params": {
+    "letter_hidden_dim": 32,
+    "drop_out": 0.3,
+    "letter_edge_ratio": 5,
+    "lr": 0.001,
+    "batch_size": 128
+  },
+  "emb_opt": "default",
+  "num_epochs": 30,
+  "patience": 5,
+  "seeds": "[23]",
+  "data": "7e10066e"
+}
