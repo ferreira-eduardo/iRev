@@ -1,0 +1,20 @@
+{
+  "study_name": "Amazon_data_CARL_tpe",
+  "storage": "sqlite:///optuna_studies/Amazon_data/CARL.db",
+  "best_value": 1.871707,
+  "best_params": {
+    "id_emb_size": 15,
+    "filters_num": 50,
+    "kernel_size": 3,
+    "word_dim": 300,
+    "weight_decay": 0.005,
+    "lr": 0.001,
+    "batch_size": 100
+  },
+  "emb_opt": "default",
+  "num_epochs": 30,
+  "patience": 5,
+  "seeds": "[23]",
+  "note": "exported from the .db after the fact; study predates settings hashing, so num_epochs/patience/seeds are grid_search.py defaults (assumed)",
+  "copied_from": "Amazon_data (not tuned on Rotten_Tomatoes_data)"
+}

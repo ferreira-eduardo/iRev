@@ -1,0 +1,15 @@
+{
+  "study_name": "Amazon_data_TARMF_tpe_4784dd55",
+  "storage": "sqlite:///optuna_studies/Amazon_data/TARMF.db",
+  "best_value": 1.844325,
+  "best_params": {
+    "word_dim": 300,
+    "id_emb_size": 256
+  },
+  "emb_opt": "default",
+  "num_epochs": 30,
+  "patience": 5,
+  "seeds": "[23]",
+  "note": "exported from the .db after the fact; study predates settings hashing, so num_epochs/patience/seeds are grid_search.py defaults (assumed)",
+  "copied_from": "Amazon_data (not tuned on Rotten_Tomatoes_data)"
+}

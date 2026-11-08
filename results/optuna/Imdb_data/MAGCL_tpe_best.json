@@ -1,0 +1,16 @@
+{
+  "study_name": "Imdb_data_MAGCL_tpe_012e28ac",
+  "storage": "sqlite:///optuna_studies/Imdb_data/MAGCL.db",
+  "best_value": -0.073725,
+  "best_params": {
+    "lr": 0.001,
+    "magcl_decay": 0.001,
+    "magcl_ssl_weight": 0.05,
+    "batch_size": 2048
+  },
+  "emb_opt": "default",
+  "num_epochs": 1000,
+  "patience": 5,
+  "seeds": "[23]",
+  "data": "e72e56d8"
+}

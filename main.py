@@ -216,6 +216,33 @@ def tower_scorer(model, opt, items):
     return scores
 
 
+def encoded_scorer(model, opt, items):
+    """Para redes com encode_user/encode_item/pair_features (CARL, DAML): o forward cruza os dois
+    lados (atenção), mas os encoders de texto não; eles rodam uma vez por usuário e por
+    item do catálogo e, por par, só a co-atenção, a fusão e a predição. Só vale para os pesos atuais."""
+    net = model.net
+    t = device_arrays(opt)
+    device = t["user_doc"].device
+    catalog_t = torch.from_numpy(np.asarray(items, dtype=np.int64)).to(device)
+    item_enc = batched(lambda a, b: net.encode_item(t["item_doc"][catalog_t[a:b]]), opt, len(catalog_t))
+
+    def scores(users):
+        users_t = torch.from_numpy(np.asarray(users, dtype=np.int64)).to(device)
+        user_enc = batched(lambda a, b: net.encode_user(t["user_doc"][users_t[a:b]]), opt, len(users_t))
+        n = len(catalog_t)
+
+        def block(a, b):
+            k = torch.arange(a, b, device=device)
+            u, i = k // n, k % n
+            uids, iids = users_t[u], catalog_t[i]
+            user_fea, item_fea = net.pair_features(user_enc[u], item_enc[i], uids, iids)
+            return model.predict_from_features(user_fea, item_fea, uids, iids).reshape(-1)
+
+        return batched(block, opt, len(users_t) * n).reshape(len(users_t), n)
+
+    return scores
+
+
 def factorized_scorer(model, opt, items):
     """Para redes com user_side/item_side/score_matrix (LETTER): sem cabeça de fusão,
     o score é um produto interno, então o catálogo é codificado uma vez e cada lote
@@ -251,6 +278,13 @@ def model_scorer(model, opt, protocol):
         print("[EVAL] factorized_scorer diverge do forward par a par; usando pairwise_scorer")
     if not model.has_fusion_head():
         return slow
+    if hasattr(model.net, "pair_features"):
+        fast = encoded_scorer(model, opt, protocol.items)
+        users = protocol.rows["val"]["user"].unique()[:2].tolist()
+        sample = pairwise_scorer(model, opt, protocol.items[:256])(users)
+        if torch.allclose(fast(users)[:, :256], sample, rtol=1e-4, atol=1e-5):
+            return fast
+        print("[EVAL] encoded_scorer diverge do forward par a par; usando pairwise_scorer")
     try:
         fast = tower_scorer(model, opt, protocol.items)
         users = protocol.rows["val"]["user"].unique()[:2].tolist()
@@ -292,6 +326,14 @@ def evaluate_popularity(opt, protocol):
     print("[REFERÊNCIA] Popularidade no treino")
     evaluate(protocol.popularity_scorer(), opt, protocol, "Popularity",
              {"model": "Popularity", "seed": 0, "epoch": None})
+
+
+def popularity(**kwargs):
+    """Gera o relatório da referência de popularidade, se ainda não existir
+    (finalize_best_hyperparams.py roda antes das seeds paralelas, para não escreverem o mesmo CSV)."""
+    opt = load_opt(kwargs)
+    if not os.path.exists(results_path(opt, "Popularity")):
+        evaluate_popularity(opt, Protocol(opt.data_root))
 
 
 # @TEST FUNCTION
@@ -490,7 +532,7 @@ def train(**kwargs):
     seed_min_losses = [train_seed(kwargs, seed, protocol, train_data, val_data) for seed in opt.seeds]
 
     print("\nTreinamento de todas as seeds concluído.")
-    if not opt.tuning:
+    if not opt.tuning and not opt.skip_summary:
         summary(dataset=opt.dataset, results_dir=opt.results_dir)
 
     avg_min_loss = float(np.mean(seed_min_losses))

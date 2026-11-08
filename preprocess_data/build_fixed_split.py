@@ -2,8 +2,8 @@
 
 The split is read as-is from dataset/<name>/splits or dataset/<name> (splits_location.py;
 cut from ~/dataset/<name>.parquet by build_splits.py), so every baseline is trained and
-evaluated on exactly the same interactions. The output goes to dataset/<name>_data/fold_0,
-the layout config.py already reads.
+evaluated on exactly the same interactions. The output goes to dataset/<name>_data,
+the layout config.py reads.
 
 The *_Score.npy targets are the raw ratings: with most users having a single train
 interaction, a per-user z-score degenerates (target 0 for those users). Relevance for
@@ -49,6 +49,6 @@ if __name__ == "__main__":
     train, val, test = (read_split(splits_dir, n) for n in ("train", "val", "test"))
     print(f"{dataset_name}: train={len(train)} val={len(val)} test={len(test)} (de {splits_dir})")
 
-    write_split(os.path.join(data_root, "fold_0"), common_path, train, val, test,
+    write_split(data_root, common_path, train, val, test,
                 load_word2vec(), global_stats={})
     print(f"\nFinalizado! Tempo total: {time.time() - start_time:.2f}s")

@@ -6,8 +6,8 @@ cd "$(dirname "$0")"
 SEED=23
 EPOCHS=10   # best epochs on the large datasets were <= 10; patience stays at the tuned 5
 FOLDS=(0 1 2 3 4)
-DATASETS=(Imdb_data Amazon_data Rotten_Tomatoes_data)
-MODELS=(CARL ConvMF DAML DeepCoNN KANN LETTER TARMF)
+DATASETS=(Rotten_Tomatoes_data)
+MODELS=(ConvMF DAML DeepCoNN KANN LETTER TARMF)
 declare -A SETTING=([Imdb_data]=imdb_loocv_data [Amazon_data]=amazon_loocv_data
                    [Rotten_Tomatoes_data]=rotten_tomatoes_loocv_data)
 # Rotten_Tomatoes_data was not tuned: results/optuna/Rotten_Tomatoes_data/*_tpe_best.json

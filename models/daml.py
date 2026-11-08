@@ -58,6 +58,41 @@ class DAML(nn.Module):
 
         return use_fea, item_fea
 
+    # ---- Ranking no catálogo completo (main.encoded_scorer) ----
+    # O par só entra pela atenção att = 1/(1+||u_local - i_local||). Depois dela,
+    # abs_cnn (sem padding) + média sobre as posições + bias é linear nas posições:
+    #   mean_l conv(f*att)[l] = sum_m att[m] * P[m] + b,  P[m] = sum_{d válidos} W_d f[m] / L'
+    # então P sai uma vez por usuário/item e, por par, sobram a distância e uma soma
+    # ponderada. Mesma conta do forward, só reassociada (difere ~1e-7).
+    def encode_user(self, user_doc):
+        return self._encode(self.user_word_embs(user_doc), self.user_doc_cnn, self.user_abs_cnn)
+
+    def encode_item(self, item_doc):
+        return self._encode(self.item_word_embs(item_doc), self.item_doc_cnn, self.item_abs_cnn)
+
+    def _encode(self, word_embs, doc_cnn, abs_cnn):
+        local = self.local_attention_cnn(word_embs, doc_cnn).squeeze(3).transpose(1, 2)  # [B, L, H]
+        k = abs_cnn.weight.shape[2]
+        out_len = local.shape[1] - k + 1
+        proj = torch.zeros(*local.shape[:2], abs_cnn.weight.shape[0], device=local.device, dtype=local.dtype)
+        for d in range(k):  # posição m = l + d da janela que começa em l
+            proj[:, d:d + out_len] += local[:, d:d + out_len] @ abs_cnn.weight[:, 0, d, :].t()
+        return torch.cat([local, proj / out_len], dim=2)  # [B, L, H + filters]
+
+    def pair_features(self, user_enc, item_enc, uids, iids):
+        h = self.opt.filters_num
+        user_local, user_proj = user_enc[..., :h], user_enc[..., h:]
+        item_local, item_proj = item_enc[..., :h], item_enc[..., h:]
+        diff = user_local - item_local
+        att = 1.0 / (1.0 + torch.sqrt((diff * diff).sum(dim=2)))  # [B, L]
+
+        user_doc_fea = F.relu(self.user_fc(torch.bmm(att.unsqueeze(1), user_proj).squeeze(1) + self.user_abs_cnn.bias))
+        item_doc_fea = F.relu(self.item_fc(torch.bmm(att.unsqueeze(1), item_proj).squeeze(1) + self.item_abs_cnn.bias))
+
+        use_fea = torch.stack([user_doc_fea, self.uid_embedding(uids)], 1)
+        item_fea = torch.stack([item_doc_fea, self.iid_embedding(iids)], 1)
+        return use_fea, item_fea
+
     def local_attention_cnn(self, word_embs, doc_cnn):
 
         local_att_words = self.word_cnn(word_embs.unsqueeze(1))

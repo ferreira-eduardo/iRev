@@ -1,0 +1,18 @@
+{
+  "study_name": "Amazon_data_ConvMF_tpe_b2f969ee",
+  "storage": "sqlite:///optuna_studies/Amazon_data/ConvMF.db",
+  "best_value": 1.860607,
+  "best_params": {
+    "word_dim": 300,
+    "filters_num": 100,
+    "kernel_size": 5,
+    "fc_dim": 100,
+    "drop_out": 0.2
+  },
+  "emb_opt": "default",
+  "num_epochs": 30,
+  "patience": 5,
+  "seeds": "[23]",
+  "note": "exported from the .db after the fact; study predates settings hashing, so num_epochs/patience/seeds are grid_search.py defaults (assumed)",
+  "copied_from": "Amazon_data (not tuned on Rotten_Tomatoes_data)"
+}

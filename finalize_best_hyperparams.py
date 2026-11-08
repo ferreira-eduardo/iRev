@@ -46,7 +46,8 @@ def main():
     parser.add_argument("--emb_opt", default=None,
                         help="base emb_opt (default: the one the search used); ConvMF/TARMF load the PMF "
                              "checkpoint <emb_opt>_pmf<n>, so per-fold PMF files need a per-fold base")
-
+    # unknown --key=value args go to main.py train as-is, e.g. --setting_path=imdb_loocv_data
+    # --fold_idx=2 --results_dir=... --checkpoint_dir=...
     args, extra_args = parser.parse_known_args()
 
     best = load_best(args.search_results_dir, args.dataset, args.model, args.sampler)

@@ -171,3 +171,14 @@ cython_debug/
 language_models/
 
 *.csv
+
+# Data and run artifacts: kept local, not versioned
+dataset/*/
+embeddings_reviews/
+logs/
+optuna_studies/**/*.db
+*.npy
+*.npz
+
+# results/ is versioned, CSVs included (overrides the global *.csv rule above)
+!results/**/*.csv

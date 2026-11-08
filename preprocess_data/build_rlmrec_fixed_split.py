@@ -1,6 +1,6 @@
 """Encodes RLMRec's LLM profiles (generate_rlmrec_profiles.py) into the semantic
 embeddings models/rlmrec.py aligns with: rlmrec_{user,item}_prf_emb.npy, row-aligned
-with fold_0's user/item ids.
+with the split's user/item ids (dataset/<name>_data/{user,item}_ids.npy).
 
     ~/PycharmProjects/ghc2f/.venv/bin/python preprocess_data/build_rlmrec_fixed_split.py all_beauty
 
@@ -23,13 +23,13 @@ MODEL_NAME = "intfloat/e5-base-v2"
 
 if __name__ == "__main__":
     dataset_name = sys.argv[1] if len(sys.argv) > 1 else "all_beauty"
-    fold_folder = os.path.join(REPO_ROOT, "dataset", f"{dataset_name}_data", "fold_0")
-    train_path = os.path.join(fold_folder, "train")
+    folder = os.path.join(REPO_ROOT, "dataset", f"{dataset_name}_data")
+    train_path = os.path.join(folder, "train")
     model = SentenceTransformer(MODEL_NAME, device="cuda" if torch.cuda.is_available() else "cpu")
 
     for side in ("user", "item"):
         # ids crus da split (userId/itemId) -> posição no fold, como remap_ids; +2 linhas de padding
-        ids = np.load(f"{fold_folder}/{side}_ids.npy")
+        ids = np.load(f"{folder}/{side}_ids.npy")
         pos = {raw: i for i, raw in enumerate(ids)}
         files = sorted(glob.glob(f"{train_path}/rlmrec_profiles/{side}_*.parquet"))
         if not files:

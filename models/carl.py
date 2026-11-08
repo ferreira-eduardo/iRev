@@ -30,19 +30,19 @@ class CARL(nn.Module):
 
     def forward(self, datas):
         _, _, uids, iids, _, _, user_doc, item_doc = datas
+        return self.pair_features(self.encode_user(user_doc), self.encode_item(item_doc), uids, iids)
 
-        user_fea = self.user_embedding(user_doc)
-        item_fea = self.item_embedding(item_doc)
+    # CNN de cada lado: depende só do doc do usuário (ou do item), então o ranking no
+    # catálogo completo (main.encoded_scorer) roda uma vez por usuário/item, não por par
+    def encode_user(self, user_doc):
+        return F.relu(self.user_cnn(self.user_embedding(user_doc).unsqueeze(1)).squeeze(3)).transpose(1, 2)
 
+    def encode_item(self, item_doc):
+        return F.relu(self.item_cnn(self.item_embedding(item_doc).unsqueeze(1)).squeeze(3)).transpose(1, 2)
+
+    def pair_features(self, user_fea, item_fea, uids, iids):
         uids_emb = self.u_emb(uids)
         iids_emb = self.i_emb(iids)
-
-        # CNNs
-        user_fea = F.relu(self.user_cnn(user_fea.unsqueeze(1)).squeeze(3))
-        item_fea = F.relu(self.item_cnn(item_fea.unsqueeze(1)).squeeze(3))
-
-        user_fea = user_fea.transpose(1, 2)
-        item_fea = item_fea.transpose(1, 2)
 
         # Atenção Bilinear
         rel_tmp = torch.matmul(user_fea, self.att_matrix)

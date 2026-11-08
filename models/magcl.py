@@ -96,6 +96,7 @@ class MAGCL(nn.Module):
         self.graph1 = _sparse_tensor(_row_normalized(sp.bmat([[None, R], [R.T, None]])), device)
         U, I = sp.load_npz(opt.magcl_user_graph_path), sp.load_npz(opt.magcl_item_graph_path)
         self.graph2 = _sparse_tensor(_row_normalized(REVIEW_EDGE_WEIGHT * sp.block_diag([U, I])), device)
+        self._cache = None
 
     def _ego(self, k):
         return torch.cat([self.user_emb[k].weight, self.item_emb[k].weight])
@@ -119,13 +120,33 @@ class MAGCL(nn.Module):
     def _split(self, emb):
         return torch.split(emb, [self.num_users, self.num_items])
 
+    def _aspects(self):
+        """sum_k LightGCN(G2, E2k), as one propagation of sum_k E2k: LightGCN is linear in its
+        input, so this is the released sum (same values and gradients) at 1/5 of the G2 cost."""
+        emb = sum(self._ego(k) for k in range(1, NUM_ASPECT_VIEWS + 1))
+        embs = [emb]
+        for _ in range(self.n_layers):
+            emb = torch.sparse.mm(self.graph2, emb)
+            embs.append(emb)
+        return torch.stack(embs, dim=1).mean(dim=1)
+
     def computer(self, with_views=False):
         """(users, items) final embeddings; with_views also returns the two SSL views."""
-        aspects = [self._lightgcn(self.graph2, k) for k in range(1, NUM_ASPECT_VIEWS + 1)]
-        final = self._lightgcn(self.graph1, 0) + ASPECT_WEIGHT * sum(aspects)
+        aspects = self._aspects()
+        final = self._lightgcn(self.graph1, 0) + ASPECT_WEIGHT * aspects
         if not with_views:
             return self._split(final)
-        return self._split(final), self._split(self._gcn_ssl()), self._split(sum(aspects))
+        return self._split(final), self._split(self._gcn_ssl()), self._split(aspects)
+
+    def _final(self):
+        """computer() without grad, reused across the ranking's user/item chunks while no
+        parameter changed (optimizer steps and load_state_dict bump the versions)."""
+        if torch.is_grad_enabled():
+            return self.computer()
+        key = tuple(p._version for p in self.parameters())
+        if self._cache is None or self._cache[0] != key:
+            self._cache = (key, self.computer())
+        return self._cache[1]
 
     def bpr_loss(self, users, pos, neg):
         """users, pos: (B,); neg: (B, num_negatives). Named bpr_loss for main.py's BPR path."""
@@ -148,10 +169,10 @@ class MAGCL(nn.Module):
         return rec_loss + self.ssl_weight * ssl_loss + self.decay * reg
 
     def user_side(self, uids):
-        return self.computer()[0][uids]
+        return self._final()[0][uids]
 
     def item_side(self, iids):
-        return self.computer()[1][iids]
+        return self._final()[1][iids]
 
     @staticmethod
     def score_matrix(user_side, item_side):
@@ -159,6 +180,6 @@ class MAGCL(nn.Module):
 
     def forward(self, datas):
         _, _, uids, iids, _, _, _, _ = datas
-        all_users, all_items = self.computer()
+        all_users, all_items = self._final()
         prediction = (all_users[uids] * all_items[iids]).sum(dim=1)
         return prediction, prediction

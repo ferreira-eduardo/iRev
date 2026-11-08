@@ -1,0 +1,16 @@
+{
+  "study_name": "Musical_Instruments_data_MAGCL_tpe_79c3b14b",
+  "storage": "sqlite:///optuna_studies/Musical_Instruments_data/MAGCL.db",
+  "best_value": -0.029265,
+  "best_params": {
+    "lr": 0.001,
+    "magcl_decay": 8e-05,
+    "magcl_ssl_weight": 0.01,
+    "batch_size": 2048
+  },
+  "emb_opt": "default",
+  "num_epochs": 1000,
+  "patience": 5,
+  "seeds": "[23]",
+  "data": "381e212f"
+}

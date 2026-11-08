@@ -12,7 +12,7 @@ Those have been dropped rather than added as inert config fields.
 
 Each trial shells out to `python main.py train --tuning=True ...` so every
 run gets a fresh CUDA/Python process (important with hundreds of trials in a
-single grid). In tuning mode main.py trains on the fixed split (fold_0),
+single grid). In tuning mode main.py trains on the fixed split (dataset/<name>_data),
 selects the epoch by validation MSE and prints a `GRID_SEARCH_METRIC=<value>`
 line with the seed-averaged best validation MSE, which this script parses back
 out as the value Optuna minimizes. BPR models (LightGCN) are selected by
@@ -243,7 +243,7 @@ TRAINING_VARIANTS = {
 
 def data_fingerprint(dataset, model):
     import config
-    train_dir = os.path.join("dataset", getattr(config, f"{dataset}_Config").setting_path, "fold_0", "train")
+    train_dir = os.path.join("dataset", getattr(config, f"{dataset}_Config").setting_path, "train")
     h = hashlib.sha1()
     for name in DATA_FINGERPRINT_FILES + MODEL_FINGERPRINT_FILES.get(model, ()):
         path = os.path.join(train_dir, name)

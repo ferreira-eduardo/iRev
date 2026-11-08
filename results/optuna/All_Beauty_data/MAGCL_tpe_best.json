@@ -1,0 +1,16 @@
+{
+  "study_name": "All_Beauty_data_MAGCL_tpe_9e7a8e83",
+  "storage": "sqlite:///optuna_studies/All_Beauty_data/MAGCL.db",
+  "best_value": -0.026423,
+  "best_params": {
+    "lr": 0.001,
+    "magcl_decay": 0.001,
+    "magcl_ssl_weight": 0.05,
+    "batch_size": 2048
+  },
+  "emb_opt": "default",
+  "num_epochs": 1000,
+  "patience": 5,
+  "seeds": "[23]",
+  "data": "0d5f6d7b"
+}

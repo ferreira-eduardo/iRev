@@ -48,7 +48,7 @@ def similarity_graph(doc, threshold=SIM_THRESHOLD):
 if __name__ == "__main__":
     dataset_name = sys.argv[1] if len(sys.argv) > 1 else "all_beauty"
     splits_dir = default_splits_dir(dataset_name)
-    fold_folder = os.path.join(REPO_ROOT, "dataset", f"{dataset_name}_data", "fold_0")
+    fold_folder = os.path.join(REPO_ROOT, "dataset", f"{dataset_name}_data")
     train_path = os.path.join(fold_folder, "train")
 
     train = read_split(splits_dir, "train")

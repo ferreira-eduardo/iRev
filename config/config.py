@@ -83,6 +83,9 @@ class DefaultConfig:
     # grid_search.py: treina e devolve só o MSE da validação (sem ranking, checkpoint
     # nem results/), para os trials não sobrescreverem as execuções reportadas
     tuning = False
+    # finalize_best_hyperparams.py --n_jobs>1: cada seed roda em um processo e o
+    # summary.csv é gerado uma vez no fim (evita ler CSVs sendo escritos por outra seed)
+    skip_summary = False
     diversity_metrics = False
 
     # ALGORITHMS PARTICULAR CONFIGURATIONS
@@ -132,7 +135,10 @@ class DefaultConfig:
     bert = ""
 
     def set_path(self, name):
-        self.data_root = f"./dataset/{name}/fold_{self.fold_idx}"
+        # LOOCV settings (dataset/<name>_loocv_data) have fold_<k>/ subdirs;
+        # fixed-split settings keep train/val/test directly under the root.
+        fold_dir = f"./dataset/{name}/fold_{self.fold_idx}"
+        self.data_root = fold_dir if os.path.isdir(fold_dir) else f"./dataset/{name}"
         prefix = f"{self.data_root}/train"
 
         # --- DEFINE FEATURES PATH (Isso DEVE vir antes de ler o JSON) ---
@@ -285,7 +291,7 @@ class All_Beauty_data_Config(DefaultConfig):
     # Split fixo do ghc2f (preprocess_data/build_fixed_split.py), sem folds.
     setting_path = 'all_beauty_data'
 
-    # Placeholders -- overwritten at parse() time by fold_0/config_stats.json.
+    # Placeholders -- overwritten at parse() time by <setting_path>/config_stats.json.
     vocab_size = 50002
     r_max_len = 55
     u_max_r = 20
