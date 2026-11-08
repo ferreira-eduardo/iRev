@@ -1,0 +1,16 @@
+{
+  "study_name": "Musical_Instruments_data_LightGCN_tpe_e1580eb3",
+  "storage": "sqlite:///optuna_studies/Musical_Instruments_data/LightGCN.db",
+  "best_value": -0.030489,
+  "best_params": {
+    "lgcn_layers": 4,
+    "lgcn_decay": 0.001,
+    "lr": 0.001,
+    "batch_size": 2048
+  },
+  "emb_opt": "default",
+  "num_epochs": 1000,
+  "patience": 5,
+  "seeds": "[23]",
+  "data": "e3844e8b"
+}

@@ -1,0 +1,17 @@
+{
+  "study_name": "All_Beauty_data_LETTER_tpe_4cef1e73",
+  "storage": "sqlite:///optuna_studies/All_Beauty_data/LETTER.db",
+  "best_value": 1.433618,
+  "best_params": {
+    "letter_hidden_dim": 32,
+    "drop_out": 0.3,
+    "letter_edge_ratio": 10,
+    "lr": 0.001,
+    "batch_size": 256
+  },
+  "emb_opt": "default",
+  "num_epochs": 30,
+  "patience": 5,
+  "seeds": "[23]",
+  "data": "80e3f492"
+}

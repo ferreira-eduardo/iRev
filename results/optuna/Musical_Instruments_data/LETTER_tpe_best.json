@@ -1,0 +1,17 @@
+{
+  "study_name": "Musical_Instruments_data_LETTER_tpe_85e0d6d7",
+  "storage": "sqlite:///optuna_studies/Musical_Instruments_data/LETTER.db",
+  "best_value": 1.170458,
+  "best_params": {
+    "letter_hidden_dim": 128,
+    "drop_out": 0.3,
+    "letter_edge_ratio": 1,
+    "lr": 0.001,
+    "batch_size": 128
+  },
+  "emb_opt": "default",
+  "num_epochs": 30,
+  "patience": 5,
+  "seeds": "[23]",
+  "data": "90cca252"
+}

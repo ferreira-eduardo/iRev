@@ -1,0 +1,2 @@
+model,dataset,fold,mse,hr@10,ndcg@10,mrr
+A3NCF,Amazon_data,,1.7717651796480869,1.0,1.0,1.0

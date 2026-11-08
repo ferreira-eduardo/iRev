@@ -1,0 +1,18 @@
+{
+  "study_name": "Imdb_data_KANN_tpe_02b7ac6b",
+  "storage": "sqlite:///optuna_studies/Imdb_data/KANN.db",
+  "best_value": 5.914569,
+  "best_params": {
+    "kann_d_model": 50,
+    "kann_dff": 1024,
+    "kann_num_heads": 4,
+    "kann_num_layers": 2,
+    "drop_out": 0.1,
+    "batch_size": 128
+  },
+  "emb_opt": "default",
+  "num_epochs": 30,
+  "patience": 5,
+  "seeds": "[23]",
+  "data": "6bf520de"
+}

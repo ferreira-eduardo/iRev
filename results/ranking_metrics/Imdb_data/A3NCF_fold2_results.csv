@@ -1,0 +1,2 @@
+model,dataset,fold,mse,hr@10,ndcg@10,mrr
+A3NCF,Imdb_data,2,1.7673062644195023,1.0,1.0,1.0

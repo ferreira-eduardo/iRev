@@ -1,0 +1,16 @@
+{
+  "study_name": "TripAdvisor_data_LightGCN_tpe_0f1f6cbe",
+  "storage": "sqlite:///optuna_studies/TripAdvisor_data/LightGCN.db",
+  "best_value": -0.033272,
+  "best_params": {
+    "lgcn_layers": 4,
+    "lgcn_decay": 0.01,
+    "lr": 0.005,
+    "batch_size": 2048
+  },
+  "emb_opt": "default",
+  "num_epochs": 1000,
+  "patience": 5,
+  "seeds": "[23]",
+  "data": "940a4886"
+}

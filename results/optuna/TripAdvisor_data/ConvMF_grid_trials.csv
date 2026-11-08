@@ -1,0 +1,3 @@
+number,value,datetime_start,datetime_complete,duration,params_drop_out,params_fc_dim,params_filters_num,params_kernel_size,params_word_dim,system_attrs_grid_id,system_attrs_search_space,state
+0,1.869177,2026-08-19 08:18:38.821816,2026-08-19 08:19:08.714183,0 days 00:00:29.892367,0.5,100,100,4,300,0,"{'drop_out': [0.2, 0.5], 'fc_dim': [50, 100], 'filters_num': [50, 100, 200], 'kernel_size': [3, 4, 5], 'word_dim': [300]}",COMPLETE
+1,1.923891,2026-08-19 08:19:08.761472,2026-08-19 08:20:05.989504,0 days 00:00:57.228032,0.5,50,50,5,300,1,"{'drop_out': [0.2, 0.5], 'fc_dim': [50, 100], 'filters_num': [50, 100, 200], 'kernel_size': [3, 4, 5], 'word_dim': [300]}",COMPLETE

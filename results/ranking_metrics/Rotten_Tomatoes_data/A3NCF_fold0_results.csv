@@ -1,0 +1,2 @@
+model,dataset,fold,mse,hr@10,ndcg@10,mrr
+A3NCF,Rotten_Tomatoes_data,0,1.1440385729476745,1.0,1.0,1.0

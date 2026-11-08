@@ -1,0 +1,17 @@
+{
+  "study_name": "TripAdvisor_data_RLMRec_tpe_700825ed",
+  "storage": "sqlite:///optuna_studies/TripAdvisor_data/RLMRec.db",
+  "best_value": -0.027347,
+  "best_params": {
+    "rlmrec_kd_weight": 0.01,
+    "rlmrec_kd_temperature": 0.5,
+    "rlmrec_reg_weight": 1e-06,
+    "lr": 0.001,
+    "batch_size": 4096
+  },
+  "emb_opt": "default",
+  "num_epochs": 1000,
+  "patience": 5,
+  "seeds": "[23]",
+  "data": "1ccb9e77"
+}

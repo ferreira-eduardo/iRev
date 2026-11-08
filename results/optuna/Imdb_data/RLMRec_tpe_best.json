@@ -1,0 +1,17 @@
+{
+  "study_name": "Imdb_data_RLMRec_tpe_c18cb111",
+  "storage": "sqlite:///optuna_studies/Imdb_data/RLMRec.db",
+  "best_value": -0.065887,
+  "best_params": {
+    "rlmrec_kd_weight": 0.001,
+    "rlmrec_kd_temperature": 0.1,
+    "rlmrec_reg_weight": 1e-06,
+    "lr": 0.001,
+    "batch_size": 4096
+  },
+  "emb_opt": "default",
+  "num_epochs": 1000,
+  "patience": 5,
+  "seeds": "[23]",
+  "data": "0b2cdb14"
+}

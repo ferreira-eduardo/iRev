@@ -1,0 +1,2 @@
+model,dataset,fold,mse,hr@10,ndcg@10,mrr
+ALFM,Rotten_Tomatoes_data,1,1.070846504737287,1.0,0.9729709265058604,0.9634193299961494

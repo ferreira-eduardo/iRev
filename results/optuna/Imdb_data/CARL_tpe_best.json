@@ -1,0 +1,19 @@
+{
+  "study_name": "Imdb_data_CARL_tpe",
+  "storage": "sqlite:///optuna_studies/Imdb_data/CARL.db",
+  "best_value": 6.499686,
+  "best_params": {
+    "id_emb_size": 200,
+    "filters_num": 50,
+    "kernel_size": 3,
+    "word_dim": 300,
+    "weight_decay": 0.001,
+    "lr": 0.001,
+    "batch_size": 100
+  },
+  "emb_opt": "default",
+  "num_epochs": 30,
+  "patience": 5,
+  "seeds": "[23]",
+  "note": "exported from the .db after the fact; study predates settings hashing, so num_epochs/patience/seeds are grid_search.py defaults (assumed)"
+}

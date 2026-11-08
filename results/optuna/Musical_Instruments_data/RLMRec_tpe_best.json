@@ -1,0 +1,17 @@
+{
+  "study_name": "Musical_Instruments_data_RLMRec_tpe_a65d93c2",
+  "storage": "sqlite:///optuna_studies/Musical_Instruments_data/RLMRec.db",
+  "best_value": -0.030797,
+  "best_params": {
+    "rlmrec_kd_weight": 0.01,
+    "rlmrec_kd_temperature": 0.2,
+    "rlmrec_reg_weight": 1e-06,
+    "lr": 0.001,
+    "batch_size": 4096
+  },
+  "emb_opt": "default",
+  "num_epochs": 1000,
+  "patience": 5,
+  "seeds": "[23]",
+  "data": "41f84268"
+}
