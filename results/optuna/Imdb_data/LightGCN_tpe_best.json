@@ -1,7 +1,7 @@
 {
-  "study_name": "Imdb_data_LightGCN_tpe_a17a102a",
-  "storage": "sqlite:///optuna_studies/Imdb_data/LightGCN.db",
-  "best_value": -0.068775,
+  "study_name": "Rotten_Tomatoes_data_LightGCN_tpe_0f1f6cbe",
+  "storage": "sqlite:///optuna_studies/Rotten_Tomatoes_data/LightGCN.db",
+  "best_value": -0.033272,
   "best_params": {
     "lgcn_layers": 4,
     "lgcn_decay": 0.01,
@@ -12,5 +12,6 @@
   "num_epochs": 1000,
   "patience": 5,
   "seeds": "[23]",
-  "data": "c5a476c4"
+  "data": "940a4886",
+  "copied_from": "Rotten_Tomatoes_data (LightGCN not tuned on Imdb_data)"
 }
